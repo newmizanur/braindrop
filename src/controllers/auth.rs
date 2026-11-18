@@ -1,4 +1,5 @@
 use crate::{
+    auth_policy::AuthPolicy,
     mailers::auth::AuthMailer,
     models::{
         _entities::users,
@@ -6,7 +7,8 @@ use crate::{
     },
     views::auth::{CurrentResponse, LoginResponse},
 };
-use loco_rs::prelude::*;
+use axum::http::StatusCode;
+use loco_rs::{controller::ErrorDetail, prelude::*};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
@@ -40,6 +42,40 @@ pub struct ResendVerificationParams {
     pub email: String,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AuthConfigResponse {
+    pub allow_registration: bool,
+    pub require_email_verification: bool,
+}
+
+/// Return a 403 with a stable machine-readable code and a user-safe message.
+fn forbidden<U>(code: &str, message: &str) -> Result<U> {
+    Err(Error::CustomError(
+        StatusCode::FORBIDDEN,
+        ErrorDetail::new(code, message),
+    ))
+}
+
+/// Sign a session token for `user`.
+///
+/// # Errors
+///
+/// Returns a 500 when the configured JWT secret cannot be used for signing.
+/// That is a server misconfiguration, not a failed login, so it must not be
+/// reported as a 401.
+fn issue_token(ctx: &AppContext, user: &users::Model) -> Result<String> {
+    let jwt_secret = ctx.config.get_jwt_config()?;
+    user.generate_jwt(&jwt_secret.secret, jwt_secret.expiration)
+        .map_err(|err| {
+            tracing::error!(
+                message = err.to_string(),
+                user_pid = user.pid.to_string(),
+                "could not sign a session token; check that JWT_SECRET is valid base64"
+            );
+            Error::InternalServerError
+        })
+}
+
 /// Register function creates a new user with the given parameters and sends a
 /// welcome email to the user
 #[debug_handler]
@@ -47,6 +83,18 @@ async fn register(
     State(ctx): State<AppContext>,
     Json(params): Json<RegisterParams>,
 ) -> Result<Response> {
+    let policy = AuthPolicy::from_config(&ctx.config)?;
+    if !policy.allow_registration {
+        tracing::info!(
+            email = &params.email,
+            "registration rejected: disabled by policy"
+        );
+        return forbidden(
+            "registration_disabled",
+            "Public registration is disabled. Ask an administrator to create an account.",
+        );
+    }
+
     let res = users::Model::create_with_password(&ctx.db, &params).await;
 
     let user = match res {
@@ -143,17 +191,23 @@ async fn login(State(ctx): State<AppContext>, Json(params): Json<LoginParams>) -
         return unauthorized("Invalid credentials!");
     };
 
-    let valid = user.verify_password(&params.password);
-
-    if !valid {
-        return unauthorized("unauthorized!");
+    if !user.verify_password(&params.password) {
+        return unauthorized("Invalid credentials!");
     }
 
-    let jwt_secret = ctx.config.get_jwt_config()?;
+    let policy = AuthPolicy::from_config(&ctx.config)?;
+    if policy.require_email_verification && user.email_verified_at.is_none() {
+        tracing::info!(
+            pid = user.pid.to_string(),
+            "login rejected: email verification required"
+        );
+        return forbidden(
+            "email_verification_required",
+            "Verify your email address before logging in.",
+        );
+    }
 
-    let token = user
-        .generate_jwt(&jwt_secret.secret, jwt_secret.expiration)
-        .or_else(|_| unauthorized("unauthorized!"))?;
+    let token = issue_token(&ctx, &user)?;
 
     format::json(LoginResponse::new(&user, &token))
 }
@@ -162,6 +216,17 @@ async fn login(State(ctx): State<AppContext>, Json(params): Json<LoginParams>) -
 async fn current(auth: auth::JWT, State(ctx): State<AppContext>) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     format::json(CurrentResponse::new(&user))
+}
+
+/// Public authentication policy for the SPA. Deliberately outside the ten
+/// business endpoints and safe to call without a token.
+#[debug_handler]
+async fn auth_config(State(ctx): State<AppContext>) -> Result<Response> {
+    let policy = AuthPolicy::from_config(&ctx.config)?;
+    format::json(AuthConfigResponse {
+        allow_registration: policy.allow_registration,
+        require_email_verification: policy.require_email_verification,
+    })
 }
 
 /// Magic link authentication provides a secure and passwordless way to log in to the application.
@@ -217,11 +282,7 @@ async fn magic_link_verify(
 
     let user = user.into_active_model().clear_magic_link(&ctx.db).await?;
 
-    let jwt_secret = ctx.config.get_jwt_config()?;
-
-    let token = user
-        .generate_jwt(&jwt_secret.secret, jwt_secret.expiration)
-        .or_else(|_| unauthorized("unauthorized!"))?;
+    let token = issue_token(&ctx, &user)?;
 
     format::json(LoginResponse::new(&user, &token))
 }
@@ -267,6 +328,7 @@ pub fn routes() -> Routes {
         .add("/forgot", post(forgot))
         .add("/reset", post(reset))
         .add("/current", get(current))
+        .add("/config", get(auth_config))
         .add("/magic-link", post(magic_link))
         .add("/magic-link/{token}", get(magic_link_verify))
         .add("/resend-verification-mail", post(resend_verification_email))

@@ -1,4 +1,5 @@
 pub mod app;
+pub mod auth_policy;
 pub mod controllers;
 pub mod data;
 pub mod dtos;

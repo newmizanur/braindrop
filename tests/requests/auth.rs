@@ -473,6 +473,133 @@ async fn can_resend_verification_email() {
     .await;
 }
 
+/// Set an environment variable for the duration of one test and restore it
+/// afterwards. Tests are `#[serial]`, so no other test boots the app while the
+/// override is active.
+struct EnvGuard {
+    key: &'static str,
+    original: Option<String>,
+}
+
+impl EnvGuard {
+    fn set(key: &'static str, value: &str) -> Self {
+        let original = std::env::var(key).ok();
+        std::env::set_var(key, value);
+        Self { key, original }
+    }
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        match &self.original {
+            Some(value) => std::env::set_var(self.key, value),
+            None => std::env::remove_var(self.key),
+        }
+    }
+}
+
+#[tokio::test]
+#[serial]
+async fn registration_is_rejected_when_disabled() {
+    let _env = EnvGuard::set("ALLOW_REGISTRATION", "false");
+
+    request::<App, _, _>(|request, ctx| async move {
+        let response = request
+            .post("/api/auth/register")
+            .json(&serde_json::json!({
+                "name": "closed",
+                "email": "closed@example.com",
+                "password": "12341234"
+            }))
+            .await;
+
+        assert_eq!(
+            response.status_code(),
+            403,
+            "disabled registration must be rejected"
+        );
+        let body = response.text();
+        assert!(
+            body.contains("registration_disabled"),
+            "unexpected error body: {body}"
+        );
+        assert!(
+            users::Model::find_by_email(&ctx.db, "closed@example.com")
+                .await
+                .is_err(),
+            "a rejected registration must not create a user"
+        );
+    })
+    .await;
+}
+
+#[tokio::test]
+#[serial]
+async fn login_requires_verification_when_configured() {
+    let _env = EnvGuard::set("REQUIRE_EMAIL_VERIFICATION", "true");
+
+    request::<App, _, _>(|request, ctx| async move {
+        let email = "verify-me@example.com";
+        let password = "12341234";
+
+        let register = request
+            .post("/api/auth/register")
+            .json(&serde_json::json!({
+                "name": "verify",
+                "email": email,
+                "password": password
+            }))
+            .await;
+        assert_eq!(register.status_code(), 200);
+
+        let blocked = request
+            .post("/api/auth/login")
+            .json(&serde_json::json!({ "email": email, "password": password }))
+            .await;
+        assert_eq!(
+            blocked.status_code(),
+            403,
+            "an unverified account must not log in"
+        );
+        let body = blocked.text();
+        assert!(
+            body.contains("email_verification_required"),
+            "unexpected error body: {body}"
+        );
+
+        let user = users::Model::find_by_email(&ctx.db, email)
+            .await
+            .expect("registered user");
+        let token = user
+            .email_verification_token
+            .expect("registration issues a verification token");
+        request.get(&format!("/api/auth/verify/{token}")).await;
+
+        let allowed = request
+            .post("/api/auth/login")
+            .json(&serde_json::json!({ "email": email, "password": password }))
+            .await;
+        assert_eq!(allowed.status_code(), 200, "a verified account may log in");
+    })
+    .await;
+}
+
+#[tokio::test]
+#[serial]
+async fn public_config_reports_the_auth_policy() {
+    let _env = EnvGuard::set("ALLOW_REGISTRATION", "false");
+
+    request::<App, _, _>(|request, _ctx| async move {
+        let response = request.get("/api/auth/config").await;
+        assert_eq!(response.status_code(), 200);
+        response.assert_json(&serde_json::json!({
+            "allow_registration": false,
+            "require_email_verification": false
+        }));
+    })
+    .await;
+}
+
 #[tokio::test]
 #[serial]
 async fn cannot_resend_email_if_already_verified() {

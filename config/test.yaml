@@ -98,6 +98,14 @@ database:
   # Recreating schema when application loaded.  This is a dangerous operation, make sure that you using this flag only on dev environments or test mode
   dangerously_recreate: true
 
+# Application settings. Tests default registration to open so the generated
+# auth suite can exercise the flow; individual tests override it with
+# ALLOW_REGISTRATION=false or REQUIRE_EMAIL_VERIFICATION=true.
+settings:
+  auth:
+    allow_registration: <%= get_env(name="ALLOW_REGISTRATION", default="true") %>
+    require_email_verification: <%= get_env(name="REQUIRE_EMAIL_VERIFICATION", default="false") %>
+
 # Authentication Configuration
 auth:
   # JWT authentication

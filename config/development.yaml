@@ -109,6 +109,16 @@ database:
   # Recreating schema when application loaded.  This is a dangerous operation, make sure that you using this flag only on dev environments or test mode
   dangerously_recreate: false
 
+# Application settings. Read through `ctx.config.settings()`; never read the
+# environment directly from application code.
+settings:
+  auth:
+    # Public registration is disabled by default. Set ALLOW_REGISTRATION=true
+    # to let visitors create their own account.
+    allow_registration: <%= get_env(name="ALLOW_REGISTRATION", default="false") %>
+    # When true, a user must verify their email address before logging in.
+    require_email_verification: <%= get_env(name="REQUIRE_EMAIL_VERIFICATION", default="false") %>
+
 # Authentication Configuration
 auth:
   # JWT authentication
