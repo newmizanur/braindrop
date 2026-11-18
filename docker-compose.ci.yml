@@ -1,0 +1,85 @@
+# Docker-first local CI.
+#
+# `./scripts/ci.sh` builds these services and runs them in order. Named volumes
+# keep the Cargo registry, compiled dependencies and pnpm store between runs,
+# so a repeated run does not recompile the world. The application and test
+# databases live inside containers or a dedicated /data volume; no development
+# or production data is mounted.
+
+name: braindrop-ci
+
+services:
+  rust:
+    build:
+      context: .
+      dockerfile: docker/ci/rust.Dockerfile
+    volumes:
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - cargo-target:/app/target
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/ci/frontend.Dockerfile
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    environment:
+      DATABASE_URL: sqlite:///data/braindrop.sqlite?mode=rwc
+      QUEUE_URL: sqlite:///data/braindrop_queue.sqlite?mode=rwc
+      # Loco base64-decodes the JWT secret before signing, so CI must use a
+      # valid base64 value (the plain sentence is not). Never reuse this.
+      JWT_SECRET: Y2ktb25seS1qd3Qtc2VjcmV0LW5vdC1mb3ItcHJvZHVjdGlvbg==
+      HOST: http://localhost:5150
+      PORT: "5150"
+      BINDING: 0.0.0.0
+      LOG_LEVEL: info
+      ALLOW_REGISTRATION: "false"
+      REQUIRE_EMAIL_VERIFICATION: "false"
+      MAILER_HOST: localhost
+      MAILER_PORT: "1025"
+      MAILER_USER: ci
+      MAILER_PASSWORD: ci
+    # The image's entrypoint is the CLI itself, so replace it for this
+    # one-shot seed-then-serve command.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        braindrop-cli db migrate
+        braindrop-cli task admin:create email:ci@example.com name:"CI User" password:ci-password verified:true force:true
+        exec braindrop-cli start
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:5150/_health || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
+
+  e2e:
+    build:
+      context: .
+      dockerfile: docker/ci/playwright.Dockerfile
+    depends_on:
+      app:
+        condition: service_healthy
+    # Chromium upgrades plain-HTTP navigations to HTTPS for non-localhost
+    # hostnames, which fails against the app's HTTP port. Sharing the app's
+    # network namespace lets the browser use 127.0.0.1, which is exempt, and
+    # also proves the production image serves the SPA on its real port.
+    network_mode: "service:app"
+    environment:
+      BASE_URL: http://127.0.0.1:5150
+      CI: "true"
+      E2E_EMAIL: ci@example.com
+      E2E_PASSWORD: ci-password
+    command: ["pnpm", "exec", "playwright", "test"]
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  cargo-target:

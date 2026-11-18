@@ -1,0 +1,23 @@
+# Keep the build context small and free of local data. Never send databases,
+# secrets, build output or editor state to the daemon.
+.git
+.github
+.claude
+docs
+examples
+target
+frontend/node_modules
+frontend/dist
+frontend/coverage
+frontend/test-results
+frontend/playwright-report
+**/*.sqlite
+**/*.sqlite-*
+**/*.sqlite3
+**/*.db
+.env
+.env.*
+**/.env
+**/.env.*
+!**/.env.example
+.DS_Store

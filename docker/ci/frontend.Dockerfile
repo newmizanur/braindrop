@@ -1,0 +1,14 @@
+# syntax=docker/dockerfile:1.7
+FROM node:22-bookworm-slim
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable
+
+WORKDIR /app
+COPY frontend/package.json frontend/pnpm-lock.yaml ./
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
+COPY frontend/ ./
+
+CMD ["sh", "-lc", "pnpm typecheck && pnpm lint && pnpm test && pnpm build"]
