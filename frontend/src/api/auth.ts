@@ -7,10 +7,15 @@ export interface CurrentUser {
   email: string
 }
 
-export function useCurrentUser() {
+interface UseCurrentUserOptions {
+  enabled?: boolean
+}
+
+export function useCurrentUser({ enabled = true }: UseCurrentUserOptions = {}) {
   return useQuery({
     queryKey: ['current-user'],
     queryFn: () => get<CurrentUser>('/api/auth/current'),
+    enabled,
     retry: false,
     staleTime: 5 * 60 * 1000,
   })

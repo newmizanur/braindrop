@@ -10,6 +10,7 @@ import '@mantine/dates/styles.css'
 import '@mantine/notifications/styles.css'
 import './styles.css'
 
+import { registerServiceWorker } from './pwa'
 import { router } from './routes'
 import { theme } from './theme'
 
@@ -38,3 +39,5 @@ ReactDOM.createRoot(root).render(
     </MantineProvider>
   </React.StrictMode>,
 )
+
+registerServiceWorker()

@@ -68,7 +68,7 @@ export function QuickCapture({ opened, onClose }: QuickCaptureProps) {
 
         <Alert icon={<IconInfoCircle size={16} />} variant="light" color="gray">
           <Text size="sm">
-            This is the milestone 1 shell. Saving items is implemented in
+            This is the application shell. Saving items is implemented in
             milestone 3.
           </Text>
         </Alert>

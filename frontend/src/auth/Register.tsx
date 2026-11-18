@@ -5,16 +5,20 @@ import {
   Alert,
   Anchor,
   Button,
+  Center,
+  Loader,
   PasswordInput,
   Stack,
   Text,
   TextInput,
 } from '@mantine/core'
-import { IconAlertCircle, IconMailCheck } from '@tabler/icons-react'
+import { IconAlertCircle, IconMailCheck, IconLock } from '@tabler/icons-react'
 import { ApiClientError, post } from '../api/client'
+import { usePublicAuthConfig } from '../api/config'
 import { AuthLayout } from '../components/AuthLayout'
 
 export function Register() {
+  const authConfig = usePublicAuthConfig()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -42,7 +46,61 @@ export function Register() {
     }
   }
 
+  if (authConfig.isLoading) {
+    return (
+      <AuthLayout title="Create your account" subtitle="Checking availability…">
+        <Center py="lg">
+          <Loader aria-label="Loading registration settings" />
+        </Center>
+      </AuthLayout>
+    )
+  }
+
+  if (authConfig.isError) {
+    return (
+      <AuthLayout
+        title="Registration unavailable"
+        subtitle="We could not load the registration policy."
+      >
+        <Alert
+          icon={<IconAlertCircle size={16} />}
+          color="red"
+          variant="light"
+          role="alert"
+        >
+          Check your connection and try again.
+        </Alert>
+        <Button variant="default" onClick={() => authConfig.refetch()} fullWidth>
+          Try again
+        </Button>
+      </AuthLayout>
+    )
+  }
+
+  if (!authConfig.data?.allow_registration) {
+    return (
+      <AuthLayout
+        title="Registration is closed"
+        subtitle="This BrainDrop instance does not accept public sign-ups."
+      >
+        <Alert
+          icon={<IconLock size={18} />}
+          color="gray"
+          variant="light"
+          title="Ask an administrator"
+        >
+          Accounts are created by an administrator. If you already have one, log
+          in instead.
+        </Alert>
+        <Button component={Link} to="/login" variant="default" fullWidth>
+          Back to log in
+        </Button>
+      </AuthLayout>
+    )
+  }
+
   if (isDone) {
+    const verificationRequired = authConfig.data.require_email_verification
     return (
       <AuthLayout
         title="Check your email"
@@ -52,10 +110,11 @@ export function Register() {
           icon={<IconMailCheck size={18} />}
           color="teal"
           variant="light"
-          title="Verification link sent"
+          title="Account created"
         >
-          If that address is available, a verification link is on its way. You
-          need to verify before you can log in.
+          {verificationRequired
+            ? 'If that address is available, a verification link is on its way. You need to verify before you can log in.'
+            : 'If that address is available, your account is ready. You can log in now.'}
         </Alert>
         <Button component={Link} to="/login" variant="default" fullWidth>
           Back to log in

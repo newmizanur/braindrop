@@ -51,9 +51,9 @@ export function Settings() {
                 readOnly
               />
               <Text size="xs" c="dimmed">
-                Accounts are created through the generated Loco auth flow.
-                Milestone 2 adds an administrator task and configurable
-                registration.
+                Accounts are created by an administrator with{' '}
+                <code>admin:create</code>, or through public registration when
+                the instance enables it.
               </Text>
             </Stack>
           )}

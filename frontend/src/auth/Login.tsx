@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useLocation, useNavigate } from 'react-router'
 import {
   Alert,
   Anchor,
@@ -10,8 +10,9 @@ import {
   Text,
   TextInput,
 } from '@mantine/core'
-import { IconAlertCircle } from '@tabler/icons-react'
+import { IconAlertCircle, IconMailCheck } from '@tabler/icons-react'
 import { ApiClientError, post } from '../api/client'
+import { usePublicAuthConfig } from '../api/config'
 import { AuthLayout } from '../components/AuthLayout'
 import { setToken } from './token'
 
@@ -24,10 +25,16 @@ interface LoginResponse {
 
 export function Login() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const authConfig = usePublicAuthConfig()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isPending, setIsPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const requestedPath = (location.state as { from?: string } | null)?.from
+  const destination =
+    requestedPath && requestedPath.startsWith('/') ? requestedPath : '/dashboard'
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -39,7 +46,7 @@ export function Login() {
         password,
       })
       setToken(response.token)
-      navigate('/dashboard', { replace: true })
+      navigate(destination, { replace: true })
     } catch (err) {
       setError(
         err instanceof ApiClientError ? err.message : 'Failed to log in',
@@ -89,22 +96,38 @@ export function Login() {
             </Alert>
           )}
 
+          {authConfig.data?.require_email_verification && (
+            <Alert
+              icon={<IconMailCheck size={16} />}
+              color="blue"
+              variant="light"
+            >
+              Email verification is required. Check your inbox for the
+              verification link before logging in.
+            </Alert>
+          )}
+
           <Button type="submit" loading={isPending} fullWidth>
             {isPending ? 'Logging in…' : 'Log in'}
           </Button>
         </Stack>
       </form>
 
-      <Text size="sm" c="dimmed" ta="center">
-        Don&apos;t have an account?{' '}
-        <Anchor component={Link} to="/register" fw={600}>
-          Sign up
-        </Anchor>
-      </Text>
-      <Text size="xs" c="dimmed" ta="center">
-        Registration is open in this build. Email verification may be required
-        before your first login.
-      </Text>
+      {authConfig.data?.allow_registration ? (
+        <Text size="sm" c="dimmed" ta="center">
+          Don&apos;t have an account?{' '}
+          <Anchor component={Link} to="/register" fw={600}>
+            Sign up
+          </Anchor>
+        </Text>
+      ) : (
+        authConfig.data && (
+          <Text size="sm" c="dimmed" ta="center">
+            Public registration is disabled. Ask an administrator to create your
+            account.
+          </Text>
+        )
+      )}
     </AuthLayout>
   )
 }

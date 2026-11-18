@@ -50,3 +50,25 @@ body {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* Keyboard users can jump past the navigation on every page. */
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 1000;
+  padding: 8px 12px;
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-indigo-6);
+  color: var(--mantine-color-white);
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+  transform: translateY(-150%);
+  transition: transform 120ms ease;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+  outline: 2px solid var(--mantine-color-white);
+  outline-offset: 2px;
+}

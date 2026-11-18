@@ -89,6 +89,9 @@ export function App() {
 
   return (
     <>
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
       <AppShell
         header={{ height: 60 }}
         navbar={{
@@ -217,7 +220,7 @@ export function App() {
           <AppShell.Section>
             <Box p="xs">
               <Text size="xs" c="dimmed">
-                BrainDrop 0.1.0 — bootstrap
+                BrainDrop 0.1.0 — milestone 2
               </Text>
               <Text size="xs" c="dimmed">
                 Items and AI arrive in later milestones.
@@ -226,7 +229,7 @@ export function App() {
           </AppShell.Section>
         </AppShell.Navbar>
 
-        <AppShell.Main>
+        <AppShell.Main id="main-content">
           <Outlet />
         </AppShell.Main>
       </AppShell>

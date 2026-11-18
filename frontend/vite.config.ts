@@ -24,6 +24,9 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       setupFiles: './src/test/setup.ts',
       css: false,
+      // Playwright owns `e2e/`; Vitest must not try to run those files.
+      include: ['src/**/*.{test,spec}.{ts,tsx}'],
+      exclude: ['e2e/**', 'node_modules/**', 'dist/**'],
     },
   }
 })
