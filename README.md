@@ -13,8 +13,8 @@ service.
 ## Status
 
 BrainDrop is under active development. **Milestones 1 (bootstrap), 2 (auth and
-shell hardening), 3 (items and settings) and 4 (AI capture) are complete**; the
-application is not production-ready yet.
+shell hardening), 3 (items and settings), 4 (AI capture) and 5 (notifications)
+are complete**; the application is not production-ready yet.
 
 | Area | State |
 |---|---|
@@ -24,7 +24,7 @@ application is not production-ready yet.
 | Docker-first local CI (`./scripts/ci.sh`) | Working |
 | Items, settings, dashboard stats | Working |
 | Optional OpenRouter capture parser | Working — server key or encrypted per-user key |
-| Telegram / Discord notifications | Planned — milestone 5 |
+| Telegram / Discord notifications | Working — opt-in reminders, daily digest and overdue summaries |
 | Full deployment compose, publishing, backups | Planned — milestone 6 |
 | Release hardening | Planned — milestone 7 |
 
@@ -130,6 +130,42 @@ and treats the capture text as untrusted data rather than instructions. Nothing
 is persisted until the user reviews the suggestions and saves the ones they
 want.
 
+### Optional notifications
+
+Notifications are opt-in, per user, and independent for Telegram and Discord.
+Both channels are off until the user enables them and stores credentials on the
+Integrations page. BrainDrop never needs a bot gateway connection: Telegram uses
+the Bot API and Discord uses a channel webhook.
+
+```env
+# Optional: falls back to AI_ENCRYPTION_KEY when empty
+NOTIFICATION_ENCRYPTION_KEY=<output of `openssl rand -base64 32`>
+NOTIFICATION_TIMEOUT_SECONDS=10
+NOTIFICATION_MAX_ATTEMPTS=5
+NOTIFICATION_RETRY_BASE_SECONDS=30
+NOTIFICATION_RETRY_MAX_SECONDS=3600
+NOTIFICATION_HISTORY_RETENTION_DAYS=30
+NOTIFICATION_TEST_RATE_LIMIT=5
+```
+
+Users choose scheduled reminders, a daily digest at a local delivery time and
+grouped overdue notifications in Settings. The digest and overdue schedules use
+the account timezone. Empty digests are skipped. Completed, archived and deleted
+items are never sent, and a reminder that is edited before delivery is cancelled.
+
+Every intended delivery is written to `notification_deliveries` before a queue
+job is enqueued. A unique deduplication key makes repeated scheduler scans safe,
+and a recovery scan requeues pending or abandoned deliveries after a restart.
+Delivery is **at-least-once**: providers do not offer exactly-once semantics, so
+a retry after an ambiguous network failure can produce a duplicate message.
+
+Telegram tokens and Discord webhook URLs are sealed with AES-256-GCM, are never
+returned by the API and never reach browser storage. Outbound requests are
+restricted to the official Telegram API and Discord webhook hosts; redirects are
+disabled. The `POST /api/notifications/test` endpoint is rate-limited per user.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#9-notifications) for the
+delivery lifecycle.
+
 ## Commands
 
 | Command | Purpose |
@@ -156,7 +192,8 @@ production images with `docker-compose.ci.yml` and runs, in order:
 
 1. Rust formatting, Clippy, tests and a clean SQLite migration.
 2. Frontend type-check, lint, unit tests and production build.
-3. The production Docker image, including `/_health`.
+3. The production Docker image, including `/_health`, plus a log check that Loco
+   started the HTTP server, worker and scheduler (`start --all`).
 4. Playwright smoke tests against that image.
 
 Cargo caches live in named Docker volumes and the pnpm store in a BuildKit cache
@@ -201,6 +238,10 @@ docs/                specification, architecture, progress, deployment, tasks
 - Personal OpenRouter keys are encrypted at rest with `AI_ENCRYPTION_KEY` and
   are never returned by the API, written to logs or stored in the browser.
   Without `AI_ENCRYPTION_KEY`, only the server key can be used.
+- Telegram bot tokens and Discord webhook URLs are sealed with
+  `NOTIFICATION_ENCRYPTION_KEY` (or `AI_ENCRYPTION_KEY`), are write-only in the
+  API and are never logged. Outbound hosts are restricted to the official
+  provider endpoints.
 
 ## License
 

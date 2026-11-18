@@ -56,6 +56,27 @@ queue:
   dangerously_flush: false
   
 
+# Scheduler Configuration
+# Started by `cargo loco start --all` (server + worker + scheduler). The scan
+# tasks are idempotent, so a missed or repeated tick is safe.
+scheduler:
+  jobs:
+    notification-reminders:
+      run: "notifications:reminders"
+      schedule: "0 * * * * *"
+    notification-digests:
+      run: "notifications:digests"
+      schedule: "0 * * * * *"
+    notification-overdue:
+      run: "notifications:overdue"
+      schedule: "0 0 * * * *"
+    notification-recover:
+      run: "notifications:recover"
+      schedule: "0 * * * * *"
+    notification-cleanup:
+      run: "notifications:cleanup"
+      schedule: "0 15 3 * * *"
+
 # Mailer Configuration.
 mailer:
   # Sending mail in development needs something listening on the port below.
@@ -134,6 +155,27 @@ settings:
     # Generate one with `openssl rand -base64 32`. Without it, users can still
     # use the server key, but cannot store their own.
     encryption_key: <%= get_env(name="AI_ENCRYPTION_KEY", default="") %>
+  # Optional Telegram and Discord delivery. Both are off until a user enables
+  # them and stores credentials. The server only supplies the official
+  # endpoints, the limits and the key used to seal stored credentials.
+  notifications:
+    # Falls back to AI_ENCRYPTION_KEY when empty, so one key covers both.
+    encryption_key: <%= get_env(name="NOTIFICATION_ENCRYPTION_KEY", default="") %>
+    telegram_api_base: <%= get_env(name="TELEGRAM_API_BASE", default="https://api.telegram.org") %>
+    discord_api_base: <%= get_env(name="DISCORD_API_BASE", default="https://discord.com") %>
+    timeout_seconds: <%= get_env(name="NOTIFICATION_TIMEOUT_SECONDS", default="10") %>
+    max_attempts: <%= get_env(name="NOTIFICATION_MAX_ATTEMPTS", default="5") %>
+    retry_base_seconds: <%= get_env(name="NOTIFICATION_RETRY_BASE_SECONDS", default="30") %>
+    retry_max_seconds: <%= get_env(name="NOTIFICATION_RETRY_MAX_SECONDS", default="3600") %>
+    stale_processing_minutes: 15
+    history_retention_days: <%= get_env(name="NOTIFICATION_HISTORY_RETENTION_DAYS", default="30") %>
+    test_rate_limit_per_minute: <%= get_env(name="NOTIFICATION_TEST_RATE_LIMIT", default="5") %>
+    reminder_grace_hours: 24
+    digest_window_minutes: 120
+    max_message_items: 10
+    telegram_max_chars: 4096
+    discord_max_chars: 2000
+    recovery_batch: 100
 
 # Per-user AI rate limiting lives in the cache. In-memory is enough for the
 # single-instance deployment this app targets.

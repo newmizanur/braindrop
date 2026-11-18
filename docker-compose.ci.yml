@@ -47,6 +47,9 @@ services:
       # The Playwright stage starts a mock OpenRouter on this address in the
       # shared network namespace. No real provider credentials are involved.
       AI_ENABLED: "true"
+      # CI-only key so the notification integration workflow can store and
+      # remove sealed credentials. Never reuse this outside CI.
+      NOTIFICATION_ENCRYPTION_KEY: Y2ktb25seS1ub3RpZmljYXRpb24ta2V5LTMyLWJ5dGU=
       OPENROUTER_API_KEY: sk-e2e-mock
       OPENROUTER_MODEL: e2e/mock
       OPENROUTER_BASE_URL: http://127.0.0.1:8099
@@ -58,7 +61,7 @@ services:
         set -eu
         braindrop-cli db migrate
         braindrop-cli task admin:create email:ci@example.com name:"CI User" password:ci-password verified:true force:true
-        exec braindrop-cli start
+        exec braindrop-cli start --all
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:5150/_health || exit 1"]
       interval: 2s

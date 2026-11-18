@@ -118,6 +118,25 @@ settings:
     max_items: 20
     rate_limit_per_minute: <%= get_env(name="AI_RATE_LIMIT_PER_MINUTE", default="10") %>
     encryption_key: <%= get_env(name="AI_ENCRYPTION_KEY", default="") %>
+  # Notifications are off in tests. Tests that need a channel install a mock
+  # sender in the shared store and set the environment explicitly.
+  notifications:
+    encryption_key: <%= get_env(name="NOTIFICATION_ENCRYPTION_KEY", default="") %>
+    telegram_api_base: <%= get_env(name="TELEGRAM_API_BASE", default="https://api.telegram.org") %>
+    discord_api_base: <%= get_env(name="DISCORD_API_BASE", default="https://discord.com") %>
+    timeout_seconds: 5
+    max_attempts: <%= get_env(name="NOTIFICATION_MAX_ATTEMPTS", default="5") %>
+    retry_base_seconds: <%= get_env(name="NOTIFICATION_RETRY_BASE_SECONDS", default="30") %>
+    retry_max_seconds: <%= get_env(name="NOTIFICATION_RETRY_MAX_SECONDS", default="3600") %>
+    stale_processing_minutes: 15
+    history_retention_days: <%= get_env(name="NOTIFICATION_HISTORY_RETENTION_DAYS", default="30") %>
+    test_rate_limit_per_minute: <%= get_env(name="NOTIFICATION_TEST_RATE_LIMIT", default="5") %>
+    reminder_grace_hours: 24
+    digest_window_minutes: 120
+    max_message_items: 10
+    telegram_max_chars: 4096
+    discord_max_chars: 2000
+    recovery_batch: 100
 
 cache:
   kind: InMem

@@ -3,5 +3,6 @@
 pub mod prelude;
 
 pub mod items;
+pub mod notification_deliveries;
 pub mod user_settings;
 pub mod users;

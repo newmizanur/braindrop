@@ -14,7 +14,12 @@ use migration::Migrator;
 use std::path::Path;
 
 #[allow(unused_imports)]
-use crate::{controllers, models::_entities::users, tasks, workers::downloader::DownloadWorker};
+use crate::{
+    controllers,
+    models::_entities::users,
+    tasks,
+    workers::{downloader::DownloadWorker, notification_delivery::NotificationDeliveryWorker},
+};
 
 pub struct App;
 #[async_trait]
@@ -42,7 +47,9 @@ impl Hooks for App {
     }
 
     async fn initializers(_ctx: &AppContext) -> Result<Vec<Box<dyn Initializer>>> {
-        Ok(vec![])
+        Ok(vec![Box::new(
+            crate::initializers::notifications::Notifications,
+        )])
     }
 
     fn routes(_ctx: &AppContext) -> AppRoutes {
@@ -50,12 +57,16 @@ impl Hooks for App {
             .add_route(controllers::auth::routes())
             .add_route(controllers::ai::routes())
             .add_route(controllers::items::routes())
+            .add_route(controllers::notifications::routes())
             .add_route(controllers::stats::routes())
             .add_route(controllers::settings::routes())
             .add_route(controllers::api_fallback::routes())
     }
     async fn connect_workers(ctx: &AppContext, queue: &Queue) -> Result<()> {
         queue.register(DownloadWorker::build(ctx)).await?;
+        queue
+            .register(NotificationDeliveryWorker::build(ctx))
+            .await?;
         Ok(())
     }
 
@@ -65,8 +76,18 @@ impl Hooks for App {
         tasks.register(tasks::admin_create::AdminCreate);
         tasks.register(tasks::user_create::UserCreate);
         tasks.register(tasks::user_delete::UserDelete);
+        tasks.register(tasks::notifications::NotificationReminders);
+        tasks.register(tasks::notifications::NotificationDigests);
+        tasks.register(tasks::notifications::NotificationOverdue);
+        tasks.register(tasks::notifications::NotificationRecover);
+        tasks.register(tasks::notifications::NotificationCleanup);
     }
     async fn truncate(ctx: &AppContext) -> Result<()> {
+        truncate_table(
+            &ctx.db,
+            crate::models::_entities::notification_deliveries::Entity,
+        )
+        .await?;
         truncate_table(&ctx.db, crate::models::_entities::items::Entity).await?;
         truncate_table(&ctx.db, crate::models::_entities::user_settings::Entity).await?;
         truncate_table(&ctx.db, users::Entity).await?;

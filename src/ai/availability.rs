@@ -262,6 +262,16 @@ mod tests {
             ai_use_server_key: use_server_key,
             ai_model: String::new(),
             ai_api_key_encrypted: key.map(str::to_string),
+            notifications_enabled: false,
+            telegram_enabled: false,
+            telegram_chat_id: String::new(),
+            telegram_bot_token_encrypted: None,
+            discord_enabled: false,
+            discord_webhook_encrypted: None,
+            reminders_enabled: false,
+            daily_digest_enabled: false,
+            daily_digest_time: "09:00".to_string(),
+            overdue_notifications_enabled: false,
         }
     }
 

@@ -22,6 +22,9 @@ export AI_ENABLED=true
 export OPENROUTER_API_KEY=sk-e2e-mock
 export OPENROUTER_MODEL=e2e/mock
 export OPENROUTER_BASE_URL="http://127.0.0.1:${MOCK_OPENROUTER_PORT:-8099}"
+# CI-only key so the notification e2e workflow can store sealed credentials.
+# Nothing is ever sent to a real Telegram or Discord endpoint.
+export NOTIFICATION_ENCRYPTION_KEY="Y2ktb25seS1ub3RpZmljYXRpb24ta2V5LTMyLWJ5dGU="
 
 rm -f braindrop_e2e.sqlite braindrop_e2e.sqlite-shm braindrop_e2e.sqlite-wal
 rm -f loco_e2e.sqlite loco_e2e.sqlite-shm loco_e2e.sqlite-wal
@@ -38,4 +41,4 @@ cargo loco task admin:create \
   verified:true \
   force:true
 
-exec cargo loco start
+exec cargo loco start --all

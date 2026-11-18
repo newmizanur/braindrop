@@ -7,6 +7,7 @@ pub mod dtos;
 pub mod initializers;
 pub mod mailers;
 pub mod models;
+pub mod notifications;
 pub mod tasks;
 pub mod time;
 pub mod views;

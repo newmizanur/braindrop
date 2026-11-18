@@ -2,6 +2,7 @@
 import type { AiSettingsResponse } from "./AiSettingsResponse";
 import type { ItemPriority } from "./ItemPriority";
 import type { ItemType } from "./ItemType";
+import type { NotificationSettingsResponse } from "./NotificationSettingsResponse";
 import type { Theme } from "./Theme";
 
 /**
@@ -9,4 +10,4 @@ import type { Theme } from "./Theme";
  * credentials, tokens or integration secrets: only whether a personal key is
  * stored and where the next request's credential would come from.
  */
-export type SettingsResponse = { timezone: string, theme: Theme, default_item_type: ItemType, default_priority: ItemPriority, week_start: number, ai: AiSettingsResponse, };
+export type SettingsResponse = { timezone: string, theme: Theme, default_item_type: ItemType, default_priority: ItemPriority, week_start: number, ai: AiSettingsResponse, notifications: NotificationSettingsResponse, };

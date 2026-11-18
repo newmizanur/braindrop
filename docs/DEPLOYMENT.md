@@ -44,6 +44,12 @@ braindrop-cli start --scheduler     # scheduled scans
 braindrop-cli start --all           # all three in one process
 ```
 
+The production image and Docker CI use `start --all`, so the HTTP server, queue
+worker and scheduler all boot from one process for the single-replica
+deployment. The banner must report `worker is online` and `scheduler is
+running`; CI fails if either mode is missing. Split processes remain supported
+for larger deployments that share the same SQLite volume.
+
 ## 3. Required environment
 
 ```env
@@ -82,8 +88,15 @@ AI_RATE_LIMIT_PER_MINUTE=10
 # and keep it stable; rotating it makes stored personal keys unreadable.
 AI_ENCRYPTION_KEY=
 
-# Integration credential encryption (required if Telegram/Discord are used)
-SECRETS_KEY=<32-byte base64 or hex key>
+# Optional notifications (leave disabled/empty for no delivery)
+# Falls back to AI_ENCRYPTION_KEY when empty. Generate with `openssl rand -base64 32`.
+NOTIFICATION_ENCRYPTION_KEY=
+NOTIFICATION_TIMEOUT_SECONDS=10
+NOTIFICATION_MAX_ATTEMPTS=5
+NOTIFICATION_RETRY_BASE_SECONDS=30
+NOTIFICATION_RETRY_MAX_SECONDS=3600
+NOTIFICATION_HISTORY_RETENTION_DAYS=30
+NOTIFICATION_TEST_RATE_LIMIT=5
 ```
 
 Production config deliberately has no defaults for `DATABASE_URL`,
@@ -205,7 +218,7 @@ production deployment without explicit authorization.
 ## 11. Security checklist
 
 - [ ] TLS enabled in front of the app
-- [ ] Strong `JWT_SECRET` and `SECRETS_KEY`
+- [ ] Strong `JWT_SECRET` and `NOTIFICATION_ENCRYPTION_KEY`
 - [ ] Public registration disabled unless intended
 - [ ] Email verification policy chosen
 - [ ] SMTP credentials supplied via secrets

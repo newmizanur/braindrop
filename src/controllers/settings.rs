@@ -5,6 +5,7 @@ use crate::{
     ai::config::AiSettings,
     dtos::settings::{SettingsResponse, UpdateSettingsParams},
     models::{user_settings, users},
+    notifications::config::NotificationSettings,
 };
 
 fn validation_error(message: String) -> Error {
@@ -35,10 +36,13 @@ async fn update(
     Json(params): Json<UpdateSettingsParams>,
 ) -> Result<Response> {
     let user = current_user(&ctx, &auth).await?;
-    let config = AiSettings::from_config(&ctx.config)?;
-    let patch = params.into_patch(&config).map_err(validation_error)?;
+    let ai = AiSettings::from_config(&ctx.config)?;
+    let notifications = NotificationSettings::from_config(&ctx.config)?;
+    let patch = params
+        .into_patch(&ai, &notifications)
+        .map_err(validation_error)?;
     let settings = user_settings::Model::update_for_user(&ctx.db, user.id, patch).await?;
-    format::json(SettingsResponse::new(&settings, &config))
+    format::json(SettingsResponse::new(&settings, &ai))
 }
 
 pub fn routes() -> Routes {

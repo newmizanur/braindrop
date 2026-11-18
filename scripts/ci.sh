@@ -40,6 +40,20 @@ echo "==> Starting the production image and waiting for /_health"
 "${COMPOSE[@]}" exec -T app curl -fsS http://127.0.0.1:5150/_health >/dev/null
 echo "health check passed"
 
+# The banner is the supported Loco signal that all three runtime modes were
+# booted. A server-only start would leave notifications and scheduled scans
+# silently dead, so CI fails loudly if any mode is missing.
+APP_LOGS="$("${COMPOSE[@]}" logs --no-color app)"
+grep -q "worker is online" <<<"$APP_LOGS" || {
+  echo "error: the production image did not start the Loco worker" >&2
+  exit 1
+}
+grep -q "scheduler is running" <<<"$APP_LOGS" || {
+  echo "error: the production image did not start the Loco scheduler" >&2
+  exit 1
+}
+echo "worker and scheduler are running"
+
 echo "==> Playwright: browser smoke tests against the production image"
 "${COMPOSE[@]}" run --rm e2e
 

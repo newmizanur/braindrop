@@ -9,6 +9,7 @@ import {
   Select,
   Skeleton,
   Stack,
+  Switch,
   Text,
   TextInput,
   Title,
@@ -200,6 +201,114 @@ function SettingsForm({ settings }: SettingsFormProps) {
   )
 }
 
+function NotificationsForm({ settings }: SettingsFormProps) {
+  const updateSettings = useUpdateSettings()
+  const preferences = settings.notifications
+
+  const [enabled, setEnabled] = useState(preferences.enabled)
+  const [reminders, setReminders] = useState(preferences.reminders_enabled)
+  const [digest, setDigest] = useState(preferences.daily_digest_enabled)
+  const [digestTime, setDigestTime] = useState(preferences.daily_digest_time)
+  const [overdue, setOverdue] = useState(
+    preferences.overdue_notifications_enabled,
+  )
+
+  async function handleSave(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    try {
+      const saved = await updateSettings.mutateAsync({
+        notifications_enabled: enabled,
+        reminders_enabled: reminders,
+        daily_digest_enabled: digest,
+        daily_digest_time: digestTime,
+        overdue_notifications_enabled: overdue,
+      })
+      const next = saved.notifications
+      setEnabled(next.enabled)
+      setReminders(next.reminders_enabled)
+      setDigest(next.daily_digest_enabled)
+      setDigestTime(next.daily_digest_time)
+      setOverdue(next.overdue_notifications_enabled)
+      notifications.show({
+        title: 'Notification settings saved',
+        message: 'Your delivery preferences were updated.',
+        color: 'teal',
+      })
+    } catch (error) {
+      notifications.show({
+        title: 'Could not save notification settings',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        color: 'red',
+      })
+    }
+  }
+
+  return (
+    <form onSubmit={handleSave}>
+      <Stack gap="lg">
+        <div>
+          <Title order={3} size="h4" mb="xs">
+            Notifications
+          </Title>
+          <Text size="sm" c="dimmed">
+            Telegram and Discord are configured on the Integrations page. Times
+            use your account timezone, <code>{settings.timezone}</code>.
+          </Text>
+        </div>
+
+        <Switch
+          label="Enable notifications for this account"
+          description="A master switch. Each channel and notification type can still be turned off."
+          checked={enabled}
+          onChange={(event) => setEnabled(event.currentTarget.checked)}
+        />
+
+        <Divider />
+
+        <Switch
+          label="Scheduled reminders"
+          description="Send a message when an item's reminder time arrives. Completed and archived items are skipped."
+          checked={reminders}
+          onChange={(event) => setReminders(event.currentTarget.checked)}
+        />
+
+        <Switch
+          label="Daily digest"
+          description="A once-a-day summary of items due today, upcoming items and overdue items. Empty digests are skipped."
+          checked={digest}
+          onChange={(event) => setDigest(event.currentTarget.checked)}
+        />
+
+        <TextInput
+          label="Daily digest delivery time"
+          description="Local time in your account timezone. The server sends the digest within a short window after this time."
+          type="time"
+          value={digestTime}
+          onChange={(event) => setDigestTime(event.currentTarget.value)}
+          maw={220}
+        />
+
+        <Switch
+          label="Overdue notifications"
+          description="One grouped reminder per local day for items whose due date has passed."
+          checked={overdue}
+          onChange={(event) => setOverdue(event.currentTarget.checked)}
+        />
+
+        <Group justify="flex-end">
+          <Button
+            type="submit"
+            leftSection={<IconDeviceFloppy size={16} />}
+            loading={updateSettings.isPending}
+          >
+            Save notifications
+          </Button>
+        </Group>
+      </Stack>
+    </form>
+  )
+}
+
 export function Settings() {
   const currentUser = useCurrentUser()
   const settings = useSettings()
@@ -259,6 +368,28 @@ export function Settings() {
           {settings.data && (
             <SettingsForm
               key={JSON.stringify(settings.data)}
+              settings={settings.data}
+            />
+          )}
+        </Paper>
+
+        <Paper withBorder p="lg" radius="lg">
+          {settings.isLoading && (
+            <Stack gap="md">
+              <Skeleton height={24} width="40%" />
+              <Skeleton height={36} />
+              <Skeleton height={36} />
+              <Skeleton height={36} />
+            </Stack>
+          )}
+          {settings.isError && (
+            <Alert color="red" variant="light">
+              Could not load your notification settings: {settings.error.message}
+            </Alert>
+          )}
+          {settings.data && (
+            <NotificationsForm
+              key={JSON.stringify(settings.data.notifications)}
               settings={settings.data}
             />
           )}

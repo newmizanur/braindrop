@@ -141,10 +141,10 @@ docs/                       specification, architecture, progress, deployment, t
 
 ### 5.1 Current tables
 
-`users`, `items` and `user_settings` exist today. Loco's auth, mailer and task
-code depend on `users`; it must not be replaced. Items and settings are
-implemented in milestone 3 and extended with AI preferences in milestone 4.
-`notification_deliveries` remains a milestone 5 plan.
+`users`, `items`, `user_settings` and `notification_deliveries` exist today.
+Loco's auth, mailer and task code depend on `users`; it must not be replaced.
+Items and settings were implemented in milestone 3 and extended with AI
+preferences in milestone 4 and notification preferences/delivery in milestone 5.
 
 ### 5.2 Application tables
 
@@ -190,6 +190,16 @@ includes `user_id = authenticated_user.id`.
 | `ai_use_server_key` | boolean | prefer the server key over a personal one |
 | `ai_model` | string | account model override; empty means the server default |
 | `ai_api_key_encrypted` | text, nullable | AES-256-GCM envelope; never returned |
+| `notifications_enabled` | boolean | master switch, default false |
+| `telegram_enabled` | boolean | default false |
+| `telegram_chat_id` | string | destination chat; safe to display |
+| `telegram_bot_token_encrypted` | text, nullable | AES-256-GCM envelope; never returned |
+| `discord_enabled` | boolean | default false |
+| `discord_webhook_encrypted` | text, nullable | AES-256-GCM envelope; never returned |
+| `reminders_enabled` | boolean | default false |
+| `daily_digest_enabled` | boolean | default false |
+| `daily_digest_time` | string | local `HH:MM`, default `09:00` |
+| `overdue_notifications_enabled` | boolean | default false |
 | `created_at` | timestamp | UTC |
 | `updated_at` | timestamp | UTC |
 
@@ -197,12 +207,13 @@ AI preferences live in `user_settings`. The server key, model and base URL stay
 in configuration, not in the database. A personal OpenRouter key is sealed as
 `v1:<base64url(nonce || ciphertext || tag)>` with a key derived from
 `AI_ENCRYPTION_KEY`. The API exposes only `has_personal_key`, the resolved
-status and the credential source. Notification channel preferences and delivery
-tables are added in milestone 5.
+status and the credential source.
 
-When later milestones add secrets, they use the same rule: encrypted with an
-externally configured key, never returned by the API, and summarized only with
-booleans such as `telegram_configured`.
+Notification preferences also live in `user_settings`. Every notification switch
+defaults to off. The Telegram bot token and Discord webhook are sealed with the
+same envelope using `NOTIFICATION_ENCRYPTION_KEY` (falling back to
+`AI_ENCRYPTION_KEY` when empty). The API exposes `enabled`, `configured`,
+`token_set`, `webhook_set` and the non-secret Telegram chat id only.
 
 #### `notification_deliveries`
 
@@ -210,12 +221,12 @@ booleans such as `telegram_configured`.
 |---|---|---|
 | `id` | integer PK | |
 | `user_id` | integer FK → `users.id` | indexed |
-| `item_id` | integer FK → `items.id`, nullable | null for digests |
+| `item_id` | integer FK → `items.id`, nullable | null for digests/overdue; `SET NULL` on item delete |
 | `channel` | string | `telegram`, `discord` |
-| `notification_type` | string | `reminder`, `daily_digest`, `overdue`, `test` |
+| `notification_type` | string | `reminder`, `daily_digest`, `overdue` |
 | `deduplication_key` | string | unique per intended delivery |
 | `scheduled_at` | timestamp | UTC |
-| `status` | string | `pending`, `processing`, `sent`, `failed` |
+| `status` | string | `pending`, `processing`, `sent`, `failed`, `cancelled` |
 | `attempts` | integer | default 0 |
 | `next_attempt_at` | timestamp, nullable | UTC |
 | `sent_at` | timestamp, nullable | UTC |
@@ -223,10 +234,12 @@ booleans such as `telegram_configured`.
 | `created_at` | timestamp | UTC |
 | `updated_at` | timestamp | UTC |
 
-Unique index on `deduplication_key`; indexes on `(status, next_attempt_at)` and
-`(user_id, created_at)`. The unique key prevents the scheduler from enqueueing the
-same reminder twice. Delivery is at-least-once in intent; providers do not offer
-exactly-once semantics and the code must not claim it.
+Unique index on `deduplication_key`; indexes on `(status, next_attempt_at)`,
+`(status, updated_at)`, `(user_id, channel)`, `item_id` and `scheduled_at`.
+The unique key prevents the scheduler from enqueueing the same reminder twice.
+`POST /api/notifications/test` sends directly and is not persisted. Delivery is
+at-least-once in intent; providers do not offer exactly-once semantics and the
+code must not claim it.
 
 ### 5.3 Ownership rules
 
@@ -332,31 +345,71 @@ Milestone 4 implements a small server-side client behind an `AiProvider` trait:
 
 ## 9. Notifications
 
-Milestone 5 adds Telegram and Discord behind a small channel interface:
+Telegram and Discord sit behind a small provider interface:
 
 ```text
-NotificationChannel
-  send(message) -> Result<DeliveryOutcome>
+NotificationSender
+  send(channel, credentials, message) -> Result<(), NotificationError>
 ```
 
-- Telegram: Bot API `sendMessage`, token + chat id.
-- Discord: webhook POST, no gateway connection.
-- Both use timeouts, bounded retries and sanitized errors.
-- Destinations are restricted to the approved provider endpoints (no arbitrary
-  URLs, no user-supplied host), which prevents SSRF.
-- Credentials are encrypted at rest and never returned by the API or logged.
-- A `NotificationDeliveryWorker` consumes queued deliveries.
-- A unique `deduplication_key` plus status transitions prevents duplicate
-  enqueueing; restart recovery requeues stale `processing` rows.
+- Telegram: Bot API `sendMessage` with a bot token and chat id. Messages are
+  plain text with no `parse_mode`, so user titles cannot inject formatting.
+- Discord: webhook POST with `allowed_mentions.parse = []`, so item titles
+  cannot ping users, roles or `@everyone`. No gateway connection is maintained.
+- Both clients use a bounded request timeout, disable redirects, cap the
+  response body and map status codes to typed retryable/permanent errors.
+- Destinations are restricted to the approved provider endpoints. The Telegram
+  API root must be `https://api.telegram.org`; Discord webhooks must be HTTPS
+  on an official Discord host with exactly `/api/webhooks/<id>/<token>` and no
+  port, credentials, query or fragment. This prevents SSRF.
+- Credentials are sealed with AES-256-GCM (`v1:` envelope), never returned by
+  the API and never logged. Provider errors are sanitized and truncated.
+- `POST /api/notifications/test` sends one message through an enabled,
+  configured channel and is rate-limited per user. It ignores the master switch
+  so a user can verify a channel before enabling notifications.
 
-Scheduled scans:
+Every intended delivery is persisted in `notification_deliveries` **before** a
+`NotificationDeliveryWorker` job is enqueued. The job carries only the row id;
+the worker re-reads preferences, credentials and item state, so edits,
+completion, deletion or disabling a channel between enqueue and send are safe.
+An atomic `pending → processing` update means only one worker can send a row,
+and a row is only claimable once its retry backoff has expired, so a duplicate
+job cannot bypass the wait.
+Retryable failures go back to `pending` with exponential backoff, respecting
+`Retry-After`; permanent failures end in `failed`. A delivery that is no longer
+relevant ends in `cancelled`. The queue itself has retries disabled because the
+database record owns retry state.
+
+The unique `deduplication_key` is the real guard against duplicates: repeated
+scheduler scans and restart recovery insert through it and only the first insert
+wins. Keys are built from the item UUID + reminder timestamp + channel, the
+user + local date + channel for digests, and the user + local date + channel for
+overdue summaries. A reminder scan only considers open items whose `remind_at`
+is inside the configured grace window; the worker rechecks the item status and
+the exact reminder timestamp.
+
+Scheduled scans (configured in `config/<env>.yaml` under `scheduler:` and run by
+`cargo loco start --all` / `braindrop-cli start --all`):
 
 | Schedule | Task | Purpose |
 |---|---|---|
-| every minute | reminder scan | enqueue due reminders |
-| every minute | digest eligibility | enqueue daily digests at user-local time |
-| hourly | overdue scan | enqueue overdue task notifications |
-| daily | cleanup | delete old delivery history |
+| every minute | `notifications:reminders` | enqueue due reminders |
+| every minute | `notifications:digests` | enqueue daily digests at user-local time |
+| hourly | `notifications:overdue` | enqueue grouped overdue summaries |
+| every minute | `notifications:recover` | requeue pending and abandoned deliveries |
+| daily at 03:15 | `notifications:cleanup` | delete finished history past retention |
+
+The daily digest is eligible inside a bounded local window after the configured
+time, with midnight-wrap handling that keeps a cross-midnight window on one
+local day. Empty digests are skipped. Overdue summaries are grouped once per
+user, channel and local day and become eligible at the user's daily delivery
+time. History retention defaults to 30 days.
+
+Loco runs the queue worker in-process; `queue.num_workers` bounds concurrency.
+On boot, the notification initializer also runs recovery when the queue is in
+`BackgroundQueue` mode, as a fast path for restarts. Tests install a recording
+`NotificationSender` in `ctx.shared_store` and call the scan functions with a
+deterministic clock; CI needs no real provider credentials.
 
 ## 10. Frontend
 
@@ -436,7 +489,13 @@ handlers.
 | `AI_MAX_INPUT_CHARS` | capture text limit | no (default 8000) |
 | `AI_RATE_LIMIT_PER_MINUTE` | per-user request limit | no (default 10) |
 | `AI_ENCRYPTION_KEY` | base64 32-byte key for personal provider keys | required for BYOK |
-| `SECRETS_KEY` | encryption key for notification credentials | production, if notifications used |
+| `NOTIFICATION_ENCRYPTION_KEY` | base64 32-byte key for Telegram/Discord credentials | recommended if notifications used; falls back to `AI_ENCRYPTION_KEY` |
+| `NOTIFICATION_TIMEOUT_SECONDS` | provider request timeout | no (default 10) |
+| `NOTIFICATION_MAX_ATTEMPTS` | attempts before a delivery is failed | no (default 5) |
+| `NOTIFICATION_RETRY_BASE_SECONDS` | first retry delay | no (default 30) |
+| `NOTIFICATION_RETRY_MAX_SECONDS` | maximum retry delay | no (default 3600) |
+| `NOTIFICATION_HISTORY_RETENTION_DAYS` | finished delivery retention | no (default 30) |
+| `NOTIFICATION_TEST_RATE_LIMIT` | per-user test sends per minute | no (default 5) |
 | `MAILER_*` | SMTP settings | production |
 
 Development config contains a generated JWT secret and local SQLite defaults;

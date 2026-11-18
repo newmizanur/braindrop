@@ -10,12 +10,12 @@ Last updated: **2026-11-19**
 | 002 | Auth and shell hardening | **Complete** | Registration/verification config, admin task, PWA, Playwright smoke, Docker-first CI |
 | 003 | Items and settings | **Complete** | Items CRUD, filtering, pagination, stats, per-user settings, item UI |
 | 004 | AI capture | **Complete** | OpenRouter client, `/api/ai/parse`, encrypted BYOK, review UI, mocked tests |
-| 005 | Notifications | Not started | Telegram/Discord, delivery queue, scheduler scans |
+| 005 | Notifications | **Complete** | Telegram/Discord clients, durable delivery queue, scheduler scans, settings UI, mocked tests |
 | 006 | Deployment | Not started | Deployment compose, GHCR publishing, TierHive template, backups (image and CI already delivered) |
 | 007 | Release | Not started | Smoke tests, security review, docs, release |
 
-Work proceeds one milestone at a time. Do not start milestone 005 until milestone
-004 is reviewed.
+Work proceeds one milestone at a time. Do not start milestone 006 until milestone
+005 is reviewed.
 
 ## Milestone 001 — Bootstrap
 
@@ -486,8 +486,133 @@ None.
   unreadable and users must re-enter them.
 - The model field is free text passed to OpenRouter; there is no server-side
   model allowlist.
-- Notification preferences and delivery remain milestone 5.
+- Notification preferences and delivery were added in milestone 005.
+
+## Milestone 005 — Notifications
+
+### Completed
+
+- Added migrations `m20261119_000001_add_notification_settings` and
+  `m20261119_000002_notification_deliveries`:
+  - ten `user_settings` columns for the master switch, channel switches and
+    write-only credentials, reminder/digest/overdue preferences and the local
+    digest time;
+  - `notification_deliveries` with a unique `deduplication_key`, status,
+    attempts, next-attempt/sent timestamps, sanitized `last_error`, user cascade
+    and item `SET NULL`, plus indexes for due/processing/history queries.
+- Added `src/models/notification_deliveries.rs` with typed channel, type and
+  status enums, key builders, insert-on-conflict deduplication, atomic claim,
+  sent/retry/failed/cancelled transitions, stale-processing reset and history
+  cleanup.
+- Added `src/notifications/`:
+  - typed `settings.notifications` config with clamped limits and the
+    encryption-key fallback;
+  - AES-256-GCM credential sealing through the existing `SecretBox`;
+  - strict URL/token/chat validation and official-host allowlists;
+  - plain-text message rendering with length caps and mention suppression;
+  - Telegram and Discord clients with timeouts, no redirects, capped response
+    bodies and typed retryable/permanent error mapping;
+  - dispatch/prepare logic that re-reads item state, preferences and credentials
+    at send time;
+  - reminder, digest, overdue, recovery and cleanup scans with deterministic
+    clock entry points.
+- Added `NotificationDeliveryWorker`, five native Loco tasks and the
+  `Notifications` initializer. The worker owns retry state in the database, so
+  the queue retry count is zero.
+- Added scheduler entries in all environments: reminders, digests and recovery
+  every minute; overdue hourly; cleanup daily at 03:15.
+- Added `POST /api/notifications/test` with per-user rate limiting, typed
+  conflict/validation/rate-limit/provider errors and no credential echo.
+- Extended `GET/PATCH /api/settings` with notification preferences and channel
+  status. Credentials are write-only: non-empty replaces, empty removes and
+  omitted leaves unchanged. Responses expose only booleans, `configured` and the
+  non-secret Telegram chat id.
+- Built the frontend:
+  - independent Telegram and Discord cards on Integrations with status, enable
+    switch, write-only inputs, save, remove credentials, send test and brief
+    setup instructions;
+  - a Notifications section on Settings for the master switch, reminders, daily
+    digest, local delivery time and overdue summaries;
+  - generated TypeScript bindings and TanStack Query hooks for the new DTOs;
+  - Vitest coverage for both pages and a Playwright configuration workflow.
+- Updated the production/CI runtime to `start --all` and added a CI log assertion
+  that Loco started the HTTP server, worker and scheduler.
+- Added tests with a recording `NotificationSender` injected through
+  `ctx.shared_store`; no CI run needs Telegram, Discord or AI credentials.
+  Coverage includes both channels, disabled/missing configuration, sealed and
+  non-disclosed secrets, cross-user isolation, rate limits, reminder dedup and
+  cancellation after edit/delete/completion, digest timezone windows (including
+  midnight wrap and DST helpers), overdue daily dedup, concurrent scans,
+  retry/backoff, `Retry-After`, permanent failures, restart recovery and history
+  cleanup.
+
+### Validation
+
+Single command, Docker-first:
+
+```text
+./scripts/ci.sh                   passed end to end
+```
+
+Contents:
+
+```text
+Rust fmt / clippy / tests         passed — 185 tests (95 unit, 90 integration)
+SQLite migrations                 passed — throwaway database
+Frontend typecheck / lint / tests passed — 36 Vitest tests
+Frontend production build         passed
+Production image + /_health       passed
+Scheduler listing                 passed — five notification jobs
+Worker and scheduler boot check   passed — start --all banner
+Playwright smoke tests            passed — 11 tests
+```
+
+### Decisions
+
+- **Durable row before queue job.** `notification_deliveries` is the source of
+  truth. The queue only wakes a worker by id, so a crash between insert and
+  enqueue is recoverable.
+- **Deduplication in SQLite, not the queue.** Loco's `enqueue_unique` only
+  deduplicates while a job is queued. The unique delivery key is durable across
+  scans, retries and restarts.
+- **Retries belong to the delivery record.** The queue's own retry is disabled;
+  backoff, `Retry-After`, attempt limits and sanitized errors are stored on the
+  row.
+- **At-least-once, never exactly-once.** An ambiguous provider failure can be
+  retried after the provider accepted the message. Documentation states this
+  explicitly.
+- **Official hosts only.** Telegram's base is fixed to the official HTTPS API;
+  Discord webhooks are validated against official hosts and the exact path, with
+  redirects disabled. There is no arbitrary webhook feature.
+- **Plain text and no mentions.** Telegram gets no `parse_mode`; Discord gets an
+  empty `allowed_mentions.parse`. User content cannot inject formatting or pings.
+- **One key for both integrations.** `NOTIFICATION_ENCRYPTION_KEY` falls back to
+  `AI_ENCRYPTION_KEY`, so a small deployment can keep one stable secret.
+- **Test sends ignore the master switch.** The channel itself must be enabled
+  and configured; this lets a user verify setup before turning notifications on.
+- **Overdue summaries share the digest time.** They become eligible at the
+  user's local daily delivery time, then the hourly scan sends the grouped
+  summary once per local day.
+
+### Blockers
+
+None.
+
+### Known limitations
+
+- External delivery is at-least-once. A retry after an ambiguous failure can
+  produce a duplicate message.
+- The scheduler and worker run in one process for the single-replica
+  deployment. Split processes are supported but not coordinated across replicas;
+  SQLite remains single-writer.
+- Notification history is stored in the application database and cleaned daily;
+  the Loco queue's finished jobs use Loco defaults.
+- There is no incoming Telegram/Discord message handling, bot command surface,
+  gateway connection, email or browser push.
+- Rate-limit counters for test sends are in memory and reset on restart.
+- Digest and overdue scans run every minute/hour rather than at exact per-user
+  times; the delivery window and local-day keys make repeated runs safe.
 
 ## Next task
 
-**005 — Notifications.** See `docs/tasks/005-notifications.md`.
+**006 — Deployment.** See `docs/tasks/006-deployment.md`.

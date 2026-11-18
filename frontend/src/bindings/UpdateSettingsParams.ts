@@ -5,10 +5,22 @@ import type { Theme } from "./Theme";
 
 /**
  * A partial settings update.
+ *
+ * Deliberately does not derive `Debug`: it carries write-only credentials.
  */
 export type UpdateSettingsParams = { timezone?: string | null, theme?: Theme | null, default_item_type?: ItemType | null, default_priority?: ItemPriority | null, week_start?: number | null, ai_enabled?: boolean | null, ai_use_server_key?: boolean | null, ai_model?: string | null, 
 /**
  * Write-only. A non-empty value replaces the stored key; an empty string
  * removes it. The value is never echoed back.
  */
-ai_api_key?: string | null, };
+ai_api_key?: string | null, notifications_enabled?: boolean | null, telegram_enabled?: boolean | null, telegram_chat_id?: string | null, 
+/**
+ * Write-only, like `ai_api_key`: a non-empty value replaces the token and
+ * an empty string removes it.
+ */
+telegram_bot_token?: string | null, discord_enabled?: boolean | null, 
+/**
+ * Write-only, like `ai_api_key`: a non-empty value replaces the webhook
+ * and an empty string removes it.
+ */
+discord_webhook?: string | null, reminders_enabled?: boolean | null, daily_digest_enabled?: boolean | null, daily_digest_time?: string | null, overdue_notifications_enabled?: boolean | null, };

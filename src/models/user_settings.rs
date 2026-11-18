@@ -4,7 +4,10 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 pub use super::_entities::user_settings::{ActiveModel, Column, Entity, Model};
-use crate::models::items::{ItemPriority, ItemType};
+use crate::models::{
+    items::{ItemPriority, ItemType},
+    notification_deliveries::NotificationChannel,
+};
 pub type UserSettings = Entity;
 
 /// The user's preferred colour scheme. `Auto` follows the operating system.
@@ -44,6 +47,7 @@ pub const DEFAULT_THEME: Theme = Theme::Auto;
 pub const DEFAULT_ITEM_TYPE: ItemType = ItemType::Task;
 pub const DEFAULT_PRIORITY: ItemPriority = ItemPriority::Normal;
 pub const DEFAULT_WEEK_START: i64 = 1;
+pub const DEFAULT_DIGEST_TIME: &str = "09:00";
 
 /// A partial settings update.
 #[derive(Clone, Debug, Default)]
@@ -61,6 +65,18 @@ pub struct SettingsPatch {
     /// `Some(Some(envelope))` replaces it with a newly sealed value. The
     /// plaintext key never reaches this type.
     pub ai_api_key_encrypted: Option<Option<String>>,
+    pub notifications_enabled: Option<bool>,
+    pub telegram_enabled: Option<bool>,
+    pub telegram_chat_id: Option<String>,
+    /// Same write-only contract as `ai_api_key_encrypted`.
+    pub telegram_bot_token_encrypted: Option<Option<String>>,
+    pub discord_enabled: Option<bool>,
+    /// Same write-only contract as `ai_api_key_encrypted`.
+    pub discord_webhook_encrypted: Option<Option<String>>,
+    pub reminders_enabled: Option<bool>,
+    pub daily_digest_enabled: Option<bool>,
+    pub daily_digest_time: Option<String>,
+    pub overdue_notifications_enabled: Option<bool>,
 }
 
 #[async_trait::async_trait]
@@ -115,6 +131,16 @@ impl Model {
             ai_use_server_key: ActiveValue::set(true),
             ai_model: ActiveValue::set(String::new()),
             ai_api_key_encrypted: ActiveValue::set(None),
+            notifications_enabled: ActiveValue::set(false),
+            telegram_enabled: ActiveValue::set(false),
+            telegram_chat_id: ActiveValue::set(String::new()),
+            telegram_bot_token_encrypted: ActiveValue::set(None),
+            discord_enabled: ActiveValue::set(false),
+            discord_webhook_encrypted: ActiveValue::set(None),
+            reminders_enabled: ActiveValue::set(false),
+            daily_digest_enabled: ActiveValue::set(false),
+            daily_digest_time: ActiveValue::set(DEFAULT_DIGEST_TIME.to_string()),
+            overdue_notifications_enabled: ActiveValue::set(false),
             ..Default::default()
         }
         .insert(db)
@@ -171,6 +197,36 @@ impl Model {
         if let Some(ai_api_key_encrypted) = patch.ai_api_key_encrypted {
             active.ai_api_key_encrypted = ActiveValue::set(ai_api_key_encrypted);
         }
+        if let Some(enabled) = patch.notifications_enabled {
+            active.notifications_enabled = ActiveValue::set(enabled);
+        }
+        if let Some(enabled) = patch.telegram_enabled {
+            active.telegram_enabled = ActiveValue::set(enabled);
+        }
+        if let Some(chat_id) = patch.telegram_chat_id {
+            active.telegram_chat_id = ActiveValue::set(chat_id);
+        }
+        if let Some(token) = patch.telegram_bot_token_encrypted {
+            active.telegram_bot_token_encrypted = ActiveValue::set(token);
+        }
+        if let Some(enabled) = patch.discord_enabled {
+            active.discord_enabled = ActiveValue::set(enabled);
+        }
+        if let Some(webhook) = patch.discord_webhook_encrypted {
+            active.discord_webhook_encrypted = ActiveValue::set(webhook);
+        }
+        if let Some(enabled) = patch.reminders_enabled {
+            active.reminders_enabled = ActiveValue::set(enabled);
+        }
+        if let Some(enabled) = patch.daily_digest_enabled {
+            active.daily_digest_enabled = ActiveValue::set(enabled);
+        }
+        if let Some(time) = patch.daily_digest_time {
+            active.daily_digest_time = ActiveValue::set(time);
+        }
+        if let Some(enabled) = patch.overdue_notifications_enabled {
+            active.overdue_notifications_enabled = ActiveValue::set(enabled);
+        }
 
         active.update(db).await.map_err(ModelError::from)
     }
@@ -204,6 +260,50 @@ impl Model {
     #[must_use]
     pub fn default_priority(&self) -> ItemPriority {
         ItemPriority::parse(&self.default_priority).unwrap_or(DEFAULT_PRIORITY)
+    }
+
+    /// Whether notifications are switched on for this account.
+    #[must_use]
+    pub fn notifications_enabled(&self) -> bool {
+        self.notifications_enabled
+    }
+
+    /// Whether a Telegram bot token is stored. The token itself is never read
+    /// here; decryption happens only in the notification dispatcher.
+    #[must_use]
+    pub fn telegram_configured(&self) -> bool {
+        self.telegram_bot_token_encrypted.is_some() && !self.telegram_chat_id.trim().is_empty()
+    }
+
+    /// Whether a Discord webhook is stored.
+    #[must_use]
+    pub fn discord_configured(&self) -> bool {
+        self.discord_webhook_encrypted.is_some()
+    }
+
+    /// Whether a provider can be used: enabled and fully configured.
+    #[must_use]
+    pub fn channel_ready(&self, channel: NotificationChannel) -> bool {
+        match channel {
+            NotificationChannel::Telegram => self.telegram_enabled && self.telegram_configured(),
+            NotificationChannel::Discord => self.discord_enabled && self.discord_configured(),
+        }
+    }
+
+    /// The providers that are enabled and configured, in a stable order.
+    #[must_use]
+    pub fn enabled_channels(&self) -> Vec<NotificationChannel> {
+        [NotificationChannel::Telegram, NotificationChannel::Discord]
+            .into_iter()
+            .filter(|channel| self.channel_ready(*channel))
+            .collect()
+    }
+
+    /// The local delivery time for the daily digest, falling back to 09:00.
+    #[must_use]
+    pub fn daily_digest_time(&self) -> chrono::NaiveTime {
+        crate::time::parse_local_time(&self.daily_digest_time)
+            .unwrap_or_else(|| crate::time::parse_local_time(DEFAULT_DIGEST_TIME).unwrap())
     }
 }
 

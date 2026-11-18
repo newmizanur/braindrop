@@ -209,12 +209,12 @@ Priorities: low, normal, high, urgent.
 
 - id
 - user_id
-- item_id, nullable for digests
+- item_id, nullable for digests and overdue summaries
 - channel
 - notification_type
 - deduplication_key
 - scheduled_at
-- status
+- status (`pending`, `processing`, `sent`, `failed`, `cancelled`)
 - attempts
 - next_attempt_at
 - sent_at
@@ -284,7 +284,7 @@ Use Discord webhooks without maintaining a bot gateway connection.
 - Scheduled reminders
 - Daily digest
 - Overdue tasks
-- Test notification
+- Test notification (sent directly by `POST /api/notifications/test`, not persisted)
 
 Implement provider-specific clients behind a small common interface.
 
@@ -305,6 +305,7 @@ Implement the following scheduled tasks:
 - Reminder scan every minute.
 - Daily digest eligibility scan every minute.
 - Overdue task scan hourly.
+- Pending/abandoned delivery recovery every minute.
 - Notification history cleanup daily.
 
 The scheduler should identify eligible notifications and enqueue delivery jobs.

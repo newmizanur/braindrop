@@ -1,6 +1,6 @@
 # Task 005 — Notifications
 
-**Status:** Not started
+**Status:** Complete
 
 ## Objective
 
@@ -28,21 +28,21 @@ retries and safe handling of credentials.
 
 ## Implementation checklist
 
-- [ ] Add `notification_deliveries` model/migration with unique dedup key and
+- [x] Add `notification_deliveries` model/migration with unique dedup key and
       status/next-attempt indexes.
-- [ ] Add encrypted credential storage and an externally configured key.
-- [ ] Add notification config and per-user preferences.
-- [ ] Implement Telegram and Discord clients with timeouts and bounded retries.
-- [ ] Restrict outbound URLs to approved provider endpoints (SSRF).
-- [ ] Implement the delivery worker and status transitions.
-- [ ] Implement scheduled scan tasks and `scheduler:` entries.
-- [ ] Compute user-local digest eligibility from timezone.
-- [ ] Implement `POST /api/notifications/test`.
-- [ ] Recover stale `processing` deliveries after restart.
-- [ ] Build the Integrations and notification settings UI.
-- [ ] Add tests: delivery success/failure, dedup, retries, restart recovery,
+- [x] Add encrypted credential storage and an externally configured key.
+- [x] Add notification config and per-user preferences.
+- [x] Implement Telegram and Discord clients with timeouts and bounded retries.
+- [x] Restrict outbound URLs to approved provider endpoints (SSRF).
+- [x] Implement the delivery worker and status transitions.
+- [x] Implement scheduled scan tasks and `scheduler:` entries.
+- [x] Compute user-local digest eligibility from timezone.
+- [x] Implement `POST /api/notifications/test`.
+- [x] Recover stale `processing` deliveries after restart.
+- [x] Build the Integrations and notification settings UI.
+- [x] Add tests: delivery success/failure, dedup, retries, restart recovery,
       secrets never returned/logged.
-- [ ] Update docs and PROGRESS.
+- [x] Update docs and PROGRESS.
 
 ## Acceptance criteria
 

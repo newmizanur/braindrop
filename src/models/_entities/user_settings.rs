@@ -23,6 +23,16 @@ pub struct Model {
     pub ai_use_server_key: bool,
     pub ai_model: String,
     pub ai_api_key_encrypted: Option<String>,
+    pub notifications_enabled: bool,
+    pub telegram_enabled: bool,
+    pub telegram_chat_id: String,
+    pub telegram_bot_token_encrypted: Option<String>,
+    pub discord_enabled: bool,
+    pub discord_webhook_encrypted: Option<String>,
+    pub reminders_enabled: bool,
+    pub daily_digest_enabled: bool,
+    pub daily_digest_time: String,
+    pub overdue_notifications_enabled: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
