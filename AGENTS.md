@@ -32,10 +32,28 @@ not, read it directly — it is a normal markdown file.
 
 ## Before you call it done
 
+The project contract is the Docker-first pipeline:
+
 ```sh
-cargo fmt --all
+./scripts/ci.sh
+```
+
+It runs Rust formatting, Clippy, tests and migrations, the frontend
+type-check/lint/unit tests/build, the production image health check and the
+Playwright smoke tests. Do not report a milestone as done on a partial run.
+
+If Docker is genuinely unavailable, run the same checks on the host and say so
+explicitly in the report:
+
+```sh
+cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
-cargo test
+cargo test --workspace
+pnpm --dir frontend typecheck
+pnpm --dir frontend lint
+pnpm --dir frontend test
+pnpm --dir frontend build
+pnpm --dir frontend exec playwright test
 ```
 
 ## More
@@ -73,6 +91,19 @@ BrainDrop is an open-source, lightweight, self-hostable personal inbox, task and
 - Never expose credentials or commit secrets.
 - All core functionality must work without AI.
 
+### CI rules
+
+- Docker-first: `./scripts/ci.sh` is the primary and complete validation path.
+- Keep `docker-compose.ci.yml` and the CI Dockerfiles aligned with the real
+  toolchain; do not add Redis, PostgreSQL or npm to the pipeline.
+- Cache Docker layers and persistent dependency caches, but never mount a
+  development or production database into CI. Test data lives in the container
+  or a dedicated ephemeral volume.
+- GitHub Actions stays manual-only (`workflow_dispatch`) until explicitly
+  re-enabled, and it must call the same scripts as local CI rather than
+  duplicating steps.
+- A milestone is not complete until the full pipeline passes.
+
 ### Project documentation
 
 - `docs/SPEC.md`
@@ -88,16 +119,17 @@ BrainDrop is an open-source, lightweight, self-hostable personal inbox, task and
 3. Consult Loco skills and documentation.
 4. Implement only the current milestone.
 5. Add or update tests.
-6. Run formatting, linting, tests and applicable build checks.
+6. Run `./scripts/ci.sh` and fix every failure.
 7. Update project documentation.
-8. Commit with Codex as co-author.
+8. Commit with the implementing agent (Codex or OpenCode) as co-author.
 9. Report results and stop.
 
 ### Git rules
 
 - Preserve the existing user's Git author identity.
 - Use conventional commit messages.
-- Include Codex as co-author in every implementation commit.
+- Include the implementing agent (Codex or OpenCode) as co-author in every
+  implementation commit.
 - Do not push, merge or deploy without authorization.
 
 ### Context efficiency

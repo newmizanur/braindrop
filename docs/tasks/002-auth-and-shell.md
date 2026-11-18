@@ -1,6 +1,6 @@
 # Task 002 — Auth and Shell Hardening
 
-**Status:** Not started
+**Status:** Complete (2026-11-18)
 
 ## Objective
 
@@ -32,19 +32,45 @@ shell.
 
 ## Implementation checklist
 
-- [ ] Add auth policy config to `config/{development,test,production}.yaml`.
-- [ ] Add a typed auth policy accessor on the app config (or a small model/config
+- [x] Add auth policy config to `config/{development,test,production}.yaml`.
+- [x] Add a typed auth policy accessor on the app config (or a small model/config
       helper) used by the controller and tests.
-- [ ] Reject registration with a clear 403/404 response when disabled.
-- [ ] Enforce verification when configured, without breaking existing tests.
-- [ ] Add `task admin:create` (or extend `user:create`) with verified-user
+- [x] Reject registration with a clear 403/404 response when disabled.
+- [x] Enforce verification when configured, without breaking existing tests.
+- [x] Add `task admin:create` (or extend `user:create`) with verified-user
       support and idempotent duplicate handling.
-- [ ] Expose the registration/verification flags to the SPA safely.
-- [ ] Render the register link/page only when registration is enabled.
-- [ ] Validate the JWT with `/api/auth/current` on protected routes.
-- [ ] Add PWA manifest, icons and service worker (app shell only).
-- [ ] Add Playwright config and a login/dashboard smoke test.
-- [ ] Update docs and PROGRESS.
+- [x] Expose the registration/verification flags to the SPA safely.
+- [x] Render the register link/page only when registration is enabled.
+- [x] Validate the JWT with `/api/auth/current` on protected routes.
+- [x] Add PWA manifest, icons and service worker (app shell only).
+- [x] Add Playwright config and a login/dashboard smoke test.
+- [x] Update docs and PROGRESS.
+
+## Implementation notes
+
+- Policy lives in `settings.auth` and is read with `Config::settings<T>()` by
+  `src/auth_policy.rs`. Application code never calls `std::env`.
+- `POST /api/auth/register` returns `403` with the machine-readable code
+  `registration_disabled` when disabled.
+- `POST /api/auth/login` returns `403` with `email_verification_required` when
+  the policy requires verification and the account is unverified.
+- `GET /api/auth/config` is the only new public route. It returns the two
+  booleans and no user data.
+- `admin:create` creates a verified account by default, sends verification mail
+  only when `verified:false`, and requires `force:true` to reset an existing
+  account.
+- JWT signing failures now return `500` instead of being disguised as a failed
+  login. This surfaced a real deployment hazard: Loco base64-decodes
+  `JWT_SECRET`, so a non-base64 secret breaks login.
+- The SPA validates the stored token through `/api/auth/current`, shows a
+  loading state while checking, clears the token and query cache on failure,
+  hides registration when disabled, and provides an accessible skip link.
+- The service worker caches only the app shell and static assets; `/api/*`,
+  `/_*` and non-GET requests always go to the network.
+- Docker-first CI was added in this milestone: `docker-compose.ci.yml`,
+  `docker/ci/*.Dockerfile`, `scripts/ci.sh`, `scripts/ci-rust.sh`,
+  `scripts/e2e-server.sh`, a production `Dockerfile` and `.dockerignore`.
+  GitHub Actions is manual-only and calls `./scripts/ci.sh`.
 
 ## Acceptance criteria
 
@@ -59,6 +85,14 @@ shell.
 
 ## Validation commands
 
+Primary (Docker, one command):
+
+```sh
+./scripts/ci.sh
+```
+
+Equivalent host checks when Docker is unavailable:
+
 ```sh
 cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
@@ -71,10 +105,23 @@ pnpm --dir frontend build
 pnpm --dir frontend exec playwright test
 ```
 
+## Validation results (2026-11-18)
+
+`./scripts/ci.sh` passed end to end:
+
+```text
+Rust fmt / clippy / tests          passed — 39 tests
+SQLite migrations                  passed — clean throwaway database
+Frontend typecheck / lint / tests  passed — 3 tests
+Frontend production build          passed
+Production image + /_health        passed
+Playwright smoke tests             passed — 6 tests
+```
+
 ## Out of scope
 
 - Items, settings and stats (milestone 3).
 - AI and notifications (milestones 4–5).
-- Docker/CI publishing (milestone 6).
+- Deployment compose, image publishing and backups (milestone 6).
 - Replacing Loco auth with sessions, OAuth or a separate user system.
 - Multi-factor authentication.

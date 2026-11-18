@@ -6,7 +6,7 @@ update it when a milestone changes the design.
 
 ## 1. Status
 
-Milestone 1 (bootstrap) is complete:
+Milestones 1 (bootstrap) and 2 (auth and shell hardening) are complete:
 
 - Loco application scaffold, generated with SQLite, a SQLite-backed queue and a
   client-side React SPA.
@@ -18,9 +18,16 @@ Milestone 1 (bootstrap) is complete:
   switching, authentication screens and placeholder pages for the product areas.
 - Unknown `/api/*` routes are answered by a JSON 404 catch-all, so a mistyped API
   path never falls through to the SPA.
+- Authentication is production-shaped: registration and email verification are
+  configurable, `admin:create` provisions the first account, and the SPA
+  validates its token against `/api/auth/current`.
+- The SPA is an installable PWA whose service worker caches only the app shell.
+- `./scripts/ci.sh` runs the full Docker-based validation suite, including a
+  production image build and Playwright smoke tests.
 
-Items, settings, statistics, AI, notifications, deployment artifacts and release
-hardening are **not implemented yet**. See `docs/PROGRESS.md` and `docs/tasks/`.
+Items, settings, statistics, AI, notifications, full deployment artifacts and
+release hardening are **not implemented yet**. See `docs/PROGRESS.md` and
+`docs/tasks/`.
 
 ## 2. Design principles
 
@@ -80,6 +87,7 @@ on the SQLite queue.
 ```text
 src/
   app.rs                    Hooks: routes, workers, tasks, seeds
+  auth_policy.rs            Typed registration / verification policy from config
   controllers/              thin HTTP handlers + route tables
     auth.rs                 generated Loco auth (register, login, JWT, ...)
     api_fallback.rs         JSON 404 for unknown /api routes
@@ -90,6 +98,7 @@ src/
   views/                    response types for the generated auth endpoints
   workers/                  Loco BackgroundWorker implementations
   tasks/                    CLI and scheduled tasks
+    admin_create.rs         verified initial-administrator task
   mailers/                  generated Loco mailers
 migration/                  SeaORM migrations
 config/
@@ -103,6 +112,11 @@ frontend/
     auth/                   login, register, token storage, route guard
     api/                    typed fetch client and query hooks
     bindings/               generated TypeScript DTOs
+  public/                   manifest, icons, service worker
+  e2e/                      Playwright smoke tests
+docker/
+  ci/                       Dockerfiles for the Rust, frontend and Playwright stages
+scripts/                    ci.sh (single CI entry point) and helper scripts
 tests/                      Loco request/model/task tests
 docs/                       specification, architecture, progress, deployment, tasks
 ```
@@ -227,23 +241,30 @@ Conventions:
 
 ## 7. Authentication and authorization
 
-BrainDrop uses Loco's generated JWT authentication unchanged:
+BrainDrop uses Loco's generated JWT authentication, extended with a small policy
+layer:
 
-- `POST /api/auth/register` (gated by `ALLOW_REGISTRATION` in milestone 2)
-- `POST /api/auth/login` returns a JWT
-- `GET /api/auth/current` returns the current user
-- Verification, forgot/reset and magic-link flows remain available
-- `auth::JWT` is the extractor on every protected handler
+- `POST /api/auth/register` is gated by `ALLOW_REGISTRATION`. When disabled it
+  returns `403` with the code `registration_disabled`.
+- `POST /api/auth/login` returns a JWT. When `REQUIRE_EMAIL_VERIFICATION` is on
+  and the account is unverified, it returns `403` with
+  `email_verification_required`.
+- `GET /api/auth/config` returns the two public policy booleans and no user
+  data. The SPA uses it to hide the register link and route.
+- `GET /api/auth/current` returns the current user. The SPA validates its stored
+  token through it before rendering protected routes.
+- Verification, forgot/reset and magic-link flows remain available.
+- `auth::JWT` is the extractor on every protected handler.
 
-Milestone 2 adds:
-
-- `ALLOW_REGISTRATION` (default `false`) and `REQUIRE_EMAIL_VERIFICATION`
-  (default `false`) configuration, read through `ctx.config`, not `std::env`.
-- A CLI task that creates an initial administrator or additional accounts.
-- A check that the frontend hides registration when it is disabled.
-- Tests for disabled registration and cross-user isolation.
+Policy is a typed struct (`src/auth_policy.rs`) deserialized from `settings.auth`
+via `Config::settings<T>()`. Handlers never read environment variables directly.
+The `admin:create` task is the supported way to create the first account; it
+marks the account verified unless `verified:false` is passed and requires
+`force:true` to reset an existing account.
 
 No parallel auth implementation, session store or password scheme is introduced.
+JWT signing failures return `500`, not `401`, because they indicate a server
+misconfiguration. Loco base64-decodes `JWT_SECRET`, so it must be base64.
 
 ## 8. OpenRouter integration
 
@@ -300,17 +321,24 @@ middleware with an `index.html` fallback for client-side routes.
 - Mantine `AppShell` with a header, responsive navbar, burger on mobile, theme
   toggle and user menu.
 - Routes: login, register, dashboard, inbox, today, upcoming, all items,
-  completed, settings, integrations.
+  completed, settings, integrations. The register route is only mounted when
+  the public auth config allows registration.
 - TanStack Query for server state; the typed fetch client adds the JWT and
   clears it on 401.
+- `RequireAuth` validates the stored token with `/api/auth/current` before
+  rendering protected routes, showing a full-page loader while it checks and
+  clearing token + query cache when validation fails.
 - Mantine Notifications for transient feedback.
 - Loading, empty and error states are part of each page, not an afterthought.
 - Light/dark/system theme, persisted by Mantine; the initial color scheme is set
   before paint to avoid a flash.
 - Quick capture is a modal in the shell. In milestone 3 it calls `POST /api/items`;
   in milestone 4 it can call `/api/ai/parse` and open the review UI.
-- PWA installability (milestone 2) uses a manifest and a minimal service worker
-  that caches only the app shell, never `/api/*` responses or credentials.
+- PWA installability is implemented with `manifest.webmanifest`, generated
+  icons and a minimal service worker. The worker caches only the app shell and
+  static assets; `/api/*`, `/_*` and all non-GET requests bypass the cache. It is
+  registered in production builds only, so development never serves stale
+  assets.
 
 ## 11. Static asset serving
 
@@ -368,6 +396,7 @@ and refuses to boot without them.
 Backend uses Loco's request/model testing conventions:
 
 - Auth: registration, login, current user, verification.
+- Registration/verification policy, including `admin:create` idempotency.
 - Authorization and cross-user isolation for every item/settings endpoint.
 - Validation and error shapes.
 - AI parsing with a mocked OpenRouter.
@@ -380,18 +409,48 @@ Frontend:
 - TypeScript type-check and production build.
 - ESLint.
 - Vitest for utilities/components.
-- Playwright smoke tests for login → dashboard → quick capture (milestone 2/7).
+- Playwright smoke tests for protected-route redirect, registration visibility,
+  login → dashboard → logout, bad-credential handling, the PWA manifest and
+  service-worker registration (including that no `/api/*` path is cached).
 
 CI never requires real external credentials.
 
+### 14.1 Continuous integration
+
+`./scripts/ci.sh` is the single validation entry point and is Docker-first:
+
+```text
+docker-compose.ci.yml
+  rust        fmt, clippy, cargo test, `db migrate` on a throwaway database
+  frontend    typecheck, lint, Vitest, production build
+  app         production image, `/api/auth/config`, seeded login, `/_health`
+  e2e         Playwright against the app container's network namespace
+```
+
+Cargo caches live in named Docker volumes and the pnpm store in a BuildKit cache
+mount. Test databases are created
+inside containers and never mount development or production data. The
+Playwright stage shares the app container's network namespace so Chromium can
+use `http://127.0.0.1:5150`; Chromium otherwise upgrades non-localhost HTTP
+origins to HTTPS and fails.
+
+GitHub Actions is manual-only (`workflow_dispatch`) and calls the same script, so
+local and hosted checks cannot drift.
+
 ## 15. Deployment
 
-Milestone 6 adds:
+Milestone 2 added the production image and CI harness:
 
-- Multi-stage `Dockerfile` (Node frontend build, Rust build, slim runtime).
-- `docker-compose.yml`, `.dockerignore`, `.env.example`.
-- Non-root runtime user and a persistent volume for SQLite files.
-- GitHub Actions CI and GHCR image publishing.
+- Multi-stage `Dockerfile` (pnpm frontend build, Rust release build, slim
+  non-root runtime with `frontend/dist` and `config/`).
+- `.dockerignore`, `docker-compose.ci.yml`, `docker/ci/*.Dockerfile` and
+  `scripts/ci.sh`.
+
+Milestone 6 still adds:
+
+- `docker-compose.yml` for real deployments and `.env.example`.
+- Persistent volume wiring for both SQLite files.
+- GitHub Actions publishing to GHCR (the workflow exists but is manual-only).
 - TierHive-compatible SSH deployment template (verified before activation).
 - Backup/restore scripts using SQLite's online backup mechanism.
 - Production deployment documentation.
@@ -405,15 +464,16 @@ Single replica for SQLite. Health checks use Loco's `/_health` and `/_readiness`
 | **Loco 1.3.1 instead of 1.2.x** | The repository was delivered with a complete Loco 1.3.1 scaffold (SeaORM 2, React 19, React Router 8, ts-rs 12). Regenerating or downgrading would discard a working, current scaffold and risk breaking generated auth/tests. The architecture and conventions are the same as 1.2.x; the docs are written against the 1.2.x API surface, and 1.3.1 remains compatible. |
 | **Scaffold preserved, not regenerated** | `loco new` had already produced the correct structure: SQLite DB, `queue: kind: Sqlite`, `--assets clientside` frontend, auth, tests and config. Re-running it would overwrite user work and create nested state. |
 | **Mantine 9 + React Router 8** | Current versions installed by the generator/ecosystem; APIs used are the documented Mantine 9 `AppShell`/provider APIs. |
-| **pnpm for the frontend** | The generated `package.json` declares pnpm. CI will be aligned to pnpm in milestone 6. |
+| **pnpm for the frontend** | The generated `package.json` declares pnpm; CI uses pnpm 10.12.4 through Corepack, and the frontend image installs from the frozen lockfile. |
+| **Docker-first CI** | One command (`./scripts/ci.sh`) validates Rust, frontend, the production image and Playwright. It removes host-toolchain drift and exercises the artifact that actually deploys. GitHub Actions calls the same script, manual-only for now. |
+| **Base64 `JWT_SECRET`** | Loco base64-decodes the secret before signing. Production config and `.env.example` document this, and signing failures return `500` instead of a misleading `401`. |
 | **SQLite WAL** | Loco 1.3 enables WAL automatically for file-backed SQLite connections; no custom PRAGMA code is needed. |
 | **Single application replica** | SQLite and the SQLite queue are single-writer; horizontal scaling is out of scope. |
-| **JWT in localStorage** | Generated Loco frontend behavior. Hardening (CSP, XSS review, optional cookie mode) is tracked in milestone 2/7. |
+| **JWT in localStorage** | Generated Loco frontend behavior. CSP/XSS review and optional cookie mode remain release hardening (milestone 7). |
 
 ## 17. Open questions
 
 - Exact FTS strategy for input search: FTS5 virtual table vs. indexed `LIKE`.
 - Whether AI credentials are server-wide, per-user, or both (spec allows both).
 - Digest scheduling granularity and default send time.
-- Whether email verification is enforced for API use, UI use, or both.
 - TierHive runtime capabilities and the exact SSH deployment contract.

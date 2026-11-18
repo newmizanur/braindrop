@@ -1,9 +1,10 @@
 # BrainDrop Deployment
 
-> **Status: plan.** Docker, Compose, CI publishing, backup scripts and the
-> TierHive template are implemented in milestone 6. This document describes the
-> target deployment contract so earlier milestones do not make decisions that
-> block it.
+> **Status: partly implemented.** The production multi-stage image and the
+> Docker-first local CI pipeline exist as of milestone 2. Deployment Compose,
+> GHCR publishing, backup scripts and the TierHive template are implemented in
+> milestone 6. This document describes the target deployment contract so earlier
+> milestones do not make decisions that block it.
 
 ## 1. Target
 
@@ -20,15 +21,19 @@ against the same database or queue file.
 
 ## 2. Build and runtime model
 
-Multi-stage image:
+Multi-stage image (implemented in `Dockerfile`):
 
-1. **Frontend stage** — Node.js + pnpm: install, lint/test (CI), build into
-   `frontend/dist`.
+1. **Frontend stage** — Node.js + pnpm: install from the frozen lockfile and
+   build into `frontend/dist`.
 2. **Rust build stage** — Rust stable: build the release binary with the frontend
-   assets available.
-3. **Runtime stage** — minimal Debian slim (or distroless) with the binary,
-   `frontend/dist`, `config/`, and CA certificates. Non-root user. No compiler,
-   Node.js, pnpm or source tree.
+   assets available. Loco refuses to boot without `frontend/dist`.
+3. **Runtime stage** — Debian slim with the binary, `frontend/dist`, `config/`
+   and CA certificates. Non-root user. No compiler, Node.js, pnpm or source
+   tree.
+
+The image declares a health check against `/_health`. CI starts it with a
+disposable SQLite database, creates an administrator with `admin:create`, and
+runs Playwright against it.
 
 The runtime command is the Loco binary. Run modes:
 
@@ -53,7 +58,9 @@ DATABASE_URL=sqlite:///data/braindrop.sqlite?mode=rwc
 QUEUE_URL=sqlite:///data/braindrop_queue.sqlite?mode=rwc
 
 # Auth
-JWT_SECRET=<long random value>
+# JWT_SECRET must be base64: Loco decodes it before signing.
+# Generate one with `openssl rand -base64 32`.
+JWT_SECRET=<base64 secret>
 ALLOW_REGISTRATION=false
 REQUIRE_EMAIL_VERIFICATION=false
 
@@ -142,15 +149,24 @@ Restore:
 
 ## 8. CI and image publishing
 
-Milestone 6 adds GitHub Actions:
+Docker-first local CI is implemented (milestone 2):
 
-- `cargo fmt --all -- --check`
-- `cargo clippy --all-targets -- -D warnings`
-- `cargo test --workspace`
-- frontend install, type-check, lint, test, build
-- Docker build smoke test
-- publish `ghcr.io/<owner>/braindrop:<tag>` on version tags / main, using
-  `GITHUB_TOKEN`
+- `./scripts/ci.sh` builds `docker-compose.ci.yml` and the production image.
+- It runs Rust fmt/clippy/tests and a throwaway SQLite migration, frontend
+  typecheck/lint/Vitest/build, a production-image health check with a seeded
+  login, and Playwright smoke tests.
+- Cargo caches live in named Docker volumes and the pnpm store in a BuildKit
+  cache mount; no development or
+  production database is mounted.
+
+`.github/workflows/ci.yaml` is manual-only (`workflow_dispatch`) and calls
+`./scripts/ci.sh`. It has no Redis, PostgreSQL or npm steps. Automatic runs stay
+disabled until explicitly re-enabled.
+
+Milestone 6 adds publishing:
+
+- Tag/main builds publish `ghcr.io/<owner>/braindrop:<tag>` using
+  `GITHUB_TOKEN`.
 
 CI must not require real OpenRouter, Telegram, Discord or SMTP credentials.
 

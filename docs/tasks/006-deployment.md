@@ -1,6 +1,9 @@
 # Task 006 — Deployment
 
-**Status:** Not started
+**Status:** Not started — the production image, `.dockerignore` and the
+Docker-first CI pipeline were delivered early in Task 002. This task still owns
+deployment Compose, publishing, backups, the TierHive template and restart
+persistence.
 
 ## Objective
 
@@ -27,17 +30,17 @@ backup/restore and a verified TierHive-compatible deployment template.
 
 ## Implementation checklist
 
-- [ ] Write the multi-stage Dockerfile with pinned toolchain versions.
-- [ ] Build the SPA in the Node stage and copy `frontend/dist` into the runtime.
+- [x] Write the multi-stage Dockerfile with pinned toolchain versions.
+- [x] Build the SPA in the Node stage and copy `frontend/dist` into the runtime.
 - [ ] Build the release binary; strip or minimize the runtime image.
-- [ ] Run as a non-root user; set correct volume permissions.
+- [x] Run as a non-root user; set correct volume permissions.
 - [ ] Add Compose with server, worker, scheduler (or `--all`) and a volume.
-- [ ] Add `.dockerignore` (target, node_modules, DBs, `.env`, docs build output).
+- [x] Add `.dockerignore` (target, node_modules, DBs, `.env`, docs build output).
 - [ ] Add `.env.example` with placeholders only.
-- [ ] Add CI: fmt, clippy, test, frontend typecheck/lint/test/build, Docker build.
+- [x] Add CI: fmt, clippy, test, frontend typecheck/lint/test/build, Docker build.
 - [ ] Add GHCR publish workflow with immutable tags and `GITHUB_TOKEN`.
 - [ ] Add backup/restore scripts using SQLite `.backup` and integrity checks.
-- [ ] Add health checks for `/_health` and `/_readiness`.
+- [x] Add a container health check for `/_health`; readiness wiring remains.
 - [ ] Verify clean Docker build and restart persistence.
 - [ ] Add TierHive SSH template with secrets supplied out-of-band.
 - [ ] Finish `docs/DEPLOYMENT.md` with real, verified commands.

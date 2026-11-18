@@ -12,18 +12,20 @@ service.
 
 ## Status
 
-BrainDrop is under active development. **Milestone 1 (bootstrap) is complete**;
-the application is not production-ready yet.
+BrainDrop is under active development. **Milestones 1 (bootstrap) and 2 (auth
+and shell hardening) are complete**; the application is not production-ready
+yet.
 
 | Area | State |
 |---|---|
 | Loco scaffold, SQLite, SQLite-backed queue | Working |
-| Loco JWT authentication | Working (generated) |
-| React + Mantine application shell | Working |
+| Loco JWT authentication | Working, with configurable registration and verification |
+| React + Mantine application shell | Working, installable PWA shell |
+| Docker-first local CI (`./scripts/ci.sh`) | Working |
 | Items, settings, stats | Planned — milestone 3 |
 | OpenRouter capture parser | Planned — milestone 4 |
 | Telegram / Discord notifications | Planned — milestone 5 |
-| Docker, CI publishing, backups | Planned — milestone 6 |
+| Full deployment compose, publishing, backups | Planned — milestone 6 |
 | Release hardening | Planned — milestone 7 |
 
 See [`docs/PROGRESS.md`](docs/PROGRESS.md) for the current milestone and
@@ -77,17 +79,19 @@ Vite proxies `/api` to the backend port from `PORT` (default `5150`).
 
 ### Create the first account
 
-Registration is currently the generated Loco flow. Milestone 2 makes public
-registration opt-in (disabled by default) and adds an administrator task.
-
-Until then, either register in the UI or use the Loco task:
+Public registration is disabled by default. Create the first account with the
+administrator task, which marks the account verified:
 
 ```sh
-cargo loco task user:create \
+cargo loco task admin:create \
   email:admin@example.com \
   name:"Admin" \
   password:"change-me"
 ```
+
+Set `ALLOW_REGISTRATION=true` to let visitors create their own accounts, and
+`REQUIRE_EMAIL_VERIFICATION=true` to require a verified address before login.
+Both are read from the environment through `config/<env>.yaml`.
 
 Development email uses SMTP on `localhost:1025`. Run a local catcher such as
 Mailpit if you want to receive verification and password-reset mail:
@@ -112,6 +116,25 @@ docker run --rm -p 1025:1025 -p 8025:8025 axllent/mailpit
 | `pnpm --dir frontend build` | Type-check and build the SPA into `frontend/dist` |
 | `pnpm --dir frontend lint` | ESLint |
 | `pnpm --dir frontend test` | Vitest |
+| `pnpm --dir frontend exec playwright test` | Playwright smoke tests |
+| `./scripts/ci.sh` | Run the complete Docker CI pipeline |
+
+## Continuous integration
+
+`./scripts/ci.sh` is the single validation entry point. It builds the CI and
+production images with `docker-compose.ci.yml` and runs, in order:
+
+1. Rust formatting, Clippy, tests and a clean SQLite migration.
+2. Frontend type-check, lint, unit tests and production build.
+3. The production Docker image, including `/_health`.
+4. Playwright smoke tests against that image.
+
+Cargo caches live in named Docker volumes and the pnpm store in a BuildKit cache
+mount, so repeated runs are fast. Test databases are created inside containers;
+development and production data are never mounted.
+
+GitHub Actions is intentionally **manual-only** (`workflow_dispatch`) for now
+and calls the same script, so local and hosted runs cannot drift.
 
 ## Project layout
 
@@ -121,6 +144,8 @@ migration/           SeaORM migrations
 config/              development / test / production configuration
 frontend/            React + Mantine SPA (built into frontend/dist)
 tests/               Loco request, model, task and worker tests
+docker/ci/           Dockerfiles for the CI stages
+scripts/             CI and local E2E server scripts
 docs/                specification, architecture, progress, deployment, tasks
 ```
 
@@ -139,6 +164,9 @@ docs/                specification, architecture, progress, deployment, tasks
 - Never commit `.env` files, database files, tokens or provider credentials.
 - Production requires `DATABASE_URL`, `QUEUE_URL`, `JWT_SECRET` and `HOST` to be
   supplied explicitly; there are no production defaults for secrets.
+  `JWT_SECRET` must be base64, because Loco decodes it before signing.
+- Public registration is disabled by default; the first account is created with
+  `admin:create`.
 - AI and notification integrations are optional and must fail gracefully.
 
 ## License

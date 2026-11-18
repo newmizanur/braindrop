@@ -374,7 +374,8 @@ Provide:
 - Docker Compose configuration
 - .dockerignore
 - .env.example
-- GitHub Actions CI
+- Docker-first local CI (`docker-compose.ci.yml`, `scripts/ci.sh`)
+- GitHub Actions CI (manual `workflow_dispatch` only for now)
 - GitHub Container Registry publishing
 - TierHive-compatible SSH deployment template
 - Backup and restore scripts
@@ -398,25 +399,52 @@ Do not guess deployment credentials or execute production deployment without aut
 
 Support safe SQLite backups using a consistent database backup mechanism.
 
+Local CI is Docker-first. One command, `./scripts/ci.sh`, builds the CI and
+production images from `docker-compose.ci.yml` and runs the complete validation
+suite. Cargo caches live in named Docker volumes and the pnpm store in a BuildKit
+cache mount. Test
+databases are created inside containers and never point at development or
+production data.
+
+Automatic GitHub Actions runs are disabled for now. The workflow is retained for
+manual `workflow_dispatch` runs and must call the same scripts as local CI so
+the two paths cannot drift. GitHub Actions and local CI should eventually reuse
+the same validation scripts; this is already the case for the Docker pipeline.
+
 ## 15. Testing and quality
 
 Use native Loco request and model testing conventions.
 
-Backend checks:
+The single validation command is:
+
+```bash
+./scripts/ci.sh
+```
+
+It covers:
+
+Backend:
 
 ```bash
 cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test --workspace
+cargo loco db migrate   # against a throwaway SQLite database
 ```
 
-Frontend checks:
+Frontend:
 
 - Type checking
 - ESLint
 - Vitest
 - Production build
-- Playwright smoke tests
+- Playwright smoke tests against the built application
+
+Deployment:
+
+- Multi-stage production Docker image build
+- Application start with a disposable database
+- `/_health` check and a seeded administrator login
 
 Test authorization, cross-user isolation, AI parsing, notification delivery, scheduler deduplication, restart recovery and disabled public registration.
 
