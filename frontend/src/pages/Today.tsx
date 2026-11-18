@@ -1,21 +1,28 @@
-import { Badge } from '@mantine/core'
 import { IconSun } from '@tabler/icons-react'
-import { EmptyState } from '../components/EmptyState'
-import { PageHeader } from '../components/PageHeader'
+
+import { useSettings } from '../api/settings'
+import { ItemWorkspace } from '../components/ItemWorkspace'
+import { todayBounds } from '../lib/items'
 
 export function Today() {
+  const settings = useSettings()
+  const timezone = settings.data?.timezone ?? 'UTC'
+  const { start, end } = todayBounds(timezone)
+
   return (
-    <>
-      <PageHeader
-        title="Today"
-        description="Items due today, in your timezone."
-        action={<Badge variant="light">Milestone 3</Badge>}
-      />
-      <EmptyState
-        icon={IconSun}
-        title="Nothing due today"
-        description="Due dates and timezone-aware grouping arrive with the items API in milestone 3."
-      />
-    </>
+    <ItemWorkspace
+      title="Today"
+      description="Items due today, in your configured timezone."
+      emptyIcon={IconSun}
+      emptyTitle="Nothing due today"
+      emptyDescription="Give yourself some breathing room, or plan something for later."
+      baseFilters={{
+        dueFrom: start,
+        dueTo: end,
+        statuses: ['inbox', 'pending'],
+        sort: 'due_at',
+        order: 'asc',
+      }}
+    />
   )
 }

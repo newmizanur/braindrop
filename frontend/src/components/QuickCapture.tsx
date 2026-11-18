@@ -4,87 +4,174 @@ import {
   Button,
   Group,
   Modal,
-  SegmentedControl,
+  Select,
   Stack,
-  Text,
   Textarea,
 } from '@mantine/core'
-import { IconInfoCircle, IconSparkles } from '@tabler/icons-react'
+import { DateTimePicker } from '@mantine/dates'
+import { notifications } from '@mantine/notifications'
+import { IconAlertCircle } from '@tabler/icons-react'
+
+import type { ItemPriority } from '../bindings/ItemPriority'
+import type { ItemType } from '../bindings/ItemType'
+import { useCreateItems } from '../api/items'
+import {
+  ITEM_PRIORITIES,
+  ITEM_TYPES,
+  itemTypeLabel,
+  priorityLabel,
+  toIso,
+} from '../lib/items'
 
 interface QuickCaptureProps {
   opened: boolean
   onClose: () => void
+  defaults?: { type?: ItemType; priority?: ItemPriority }
 }
 
+const typeOptions = ITEM_TYPES.map((value) => ({
+  value,
+  label: itemTypeLabel(value),
+}))
+const priorityOptions = ITEM_PRIORITIES.map((value) => ({
+  value,
+  label: priorityLabel(value),
+}))
+
 /**
- * Capture shell. Milestone 3 wires "Save" to `POST /api/items`; milestone 4
- * adds AI parsing. Until then the dialog is honest about being a preview.
+ * The fastest path into the inbox: one field, an optional type and due date,
+ * and a single button. Manual capture always works without an AI provider.
  */
-export function QuickCapture({ opened, onClose }: QuickCaptureProps) {
-  const [text, setText] = useState('')
-  const [mode, setMode] = useState<'manual' | 'ai'>('manual')
+export function QuickCapture({
+  opened,
+  onClose,
+  defaults,
+}: QuickCaptureProps) {
+  // The shell remounts this dialog on each open, so the account defaults can be
+  // read once here instead of syncing props into state with an effect.
+  const defaultType = defaults?.type ?? 'task'
+  const defaultPriority = defaults?.priority ?? 'normal'
+
+  const [title, setTitle] = useState('')
+  const [type, setType] = useState<ItemType>(defaultType)
+  const [priority, setPriority] = useState<ItemPriority>(defaultPriority)
+  const [dueAt, setDueAt] = useState<string | Date | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const createItems = useCreateItems()
+
+  function reset() {
+    setTitle('')
+    setType(defaultType)
+    setPriority(defaultPriority)
+    setDueAt(null)
+    setError(null)
+  }
+
+  async function handleSave() {
+    const trimmed = title.trim()
+    if (!trimmed) {
+      setError('Write something to capture first.')
+      return
+    }
+
+    setError(null)
+    try {
+      await createItems.mutateAsync([
+        {
+          title: trimmed,
+          type,
+          priority,
+          due_at: toIso(dueAt),
+        },
+      ])
+      notifications.show({
+        title: 'Captured',
+        message: 'Your item is waiting in the inbox.',
+        color: 'teal',
+      })
+      handleClose()
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : 'Could not save the item.',
+      )
+    }
+  }
+
+  function handleClose() {
+    reset()
+    onClose()
+  }
 
   return (
     <Modal
       opened={opened}
-      onClose={onClose}
+      onClose={handleClose}
       title="Quick capture"
       size="lg"
       centered
     >
       <Stack gap="md">
-        <SegmentedControl
-          fullWidth
-          value={mode}
-          onChange={(value) => setMode(value as 'manual' | 'ai')}
-          data={[
-            { value: 'manual', label: 'Manual' },
-            { value: 'ai', label: 'AI assist' },
-          ]}
-        />
-
-        <Textarea
-          label="What is on your mind?"
-          description="Paste a thought, a task, or a list. Nothing leaves your browser in this build."
-          placeholder="Buy milk tomorrow, renew my domain on December 15, and learn Rust async programming…"
-          autosize
-          minRows={5}
-          maxRows={12}
-          value={text}
-          onChange={(event) => setText(event.currentTarget.value)}
-          classNames={{ input: 'prewrap' }}
-        />
-
-        {mode === 'ai' && (
+        {error && (
           <Alert
-            icon={<IconSparkles size={16} />}
-            color="indigo"
+            icon={<IconAlertCircle size={16} />}
+            color="red"
             variant="light"
+            role="alert"
           >
-            AI parsing is optional and arrives in milestone 4. Manual capture
-            will always work without a provider.
+            {error}
           </Alert>
         )}
 
-        <Alert icon={<IconInfoCircle size={16} />} variant="light" color="gray">
-          <Text size="sm">
-            This is the application shell. Saving items is implemented in
-            milestone 3.
-          </Text>
-        </Alert>
+        <Textarea
+          label="What is on your mind?"
+          description="Capture it now, organise it later."
+          placeholder="Buy milk tomorrow, renew my domain on December 15…"
+          autosize
+          minRows={4}
+          maxRows={10}
+          value={title}
+          onChange={(event) => setTitle(event.currentTarget.value)}
+          classNames={{ input: 'prewrap' }}
+          data-autofocus
+        />
+
+        <Group grow align="flex-start">
+          <Select
+            label="Type"
+            data={typeOptions}
+            value={type}
+            onChange={(value) => value && setType(value as ItemType)}
+            allowDeselect={false}
+          />
+          <Select
+            label="Priority"
+            data={priorityOptions}
+            value={priority}
+            onChange={(value) => value && setPriority(value as ItemPriority)}
+            allowDeselect={false}
+          />
+        </Group>
+
+        <DateTimePicker
+          label="Due"
+          placeholder="Optional due date"
+          value={dueAt}
+          onChange={setDueAt}
+          clearable
+          valueFormat="DD MMM YYYY HH:mm"
+        />
 
         <Group justify="space-between">
-          <Text size="xs" c="dimmed">
-            {text.trim().length} characters
-          </Text>
-          <Group gap="xs">
-            <Button variant="default" onClick={onClose}>
-              Close
-            </Button>
-            <Button disabled title="Available in milestone 3">
-              Save item
-            </Button>
-          </Group>
+          <Button
+            variant="subtle"
+            color="gray"
+            onClick={handleClose}
+          >
+            Cancel
+          </Button>
+          <Button onClick={handleSave} loading={createItems.isPending}>
+            Save to inbox
+          </Button>
         </Group>
       </Stack>
     </Modal>

@@ -15,6 +15,7 @@ import {
   Text,
   Tooltip,
   UnstyledButton,
+  useMantineColorScheme,
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import type { Icon } from '@tabler/icons-react'
@@ -37,6 +38,7 @@ import { Brand } from './components/Brand'
 import { QuickCapture } from './components/QuickCapture'
 import { ThemeToggle } from './components/ThemeToggle'
 import { useCurrentUser } from './api/auth'
+import { useSettings } from './api/settings'
 import { clearToken } from './auth/token'
 import { initials } from './lib/initials'
 
@@ -73,10 +75,20 @@ export function App() {
   const [captureOpened, { open: openCapture, close: closeCapture }] =
     useDisclosure(false)
   const currentUser = useCurrentUser()
+  const settings = useSettings()
+  const { setColorScheme } = useMantineColorScheme()
 
   useEffect(() => {
     closeMobile()
   }, [location.pathname, closeMobile])
+
+  // Apply the theme stored with the account when the app loads. The local
+  // toggle stays instant; Settings persists the choice.
+  useEffect(() => {
+    if (settings.data) {
+      setColorScheme(settings.data.theme)
+    }
+  }, [settings.data, setColorScheme])
 
   function handleLogout() {
     clearToken()
@@ -220,10 +232,10 @@ export function App() {
           <AppShell.Section>
             <Box p="xs">
               <Text size="xs" c="dimmed">
-                BrainDrop 0.1.0 — milestone 2
+                BrainDrop 0.1.0
               </Text>
               <Text size="xs" c="dimmed">
-                Items and AI arrive in later milestones.
+                Local-first. AI stays optional.
               </Text>
             </Box>
           </AppShell.Section>
@@ -234,7 +246,16 @@ export function App() {
         </AppShell.Main>
       </AppShell>
 
-      <QuickCapture opened={captureOpened} onClose={closeCapture} />
+      {captureOpened && (
+        <QuickCapture
+          opened
+          onClose={closeCapture}
+          defaults={{
+            type: settings.data?.default_item_type,
+            priority: settings.data?.default_priority,
+          }}
+        />
+      )}
     </>
   )
 }

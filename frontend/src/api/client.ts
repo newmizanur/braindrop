@@ -97,6 +97,10 @@ export function put<T>(path: string, body: unknown): Promise<T> {
   return request<T>("PUT", path, body);
 }
 
+export function patch<T>(path: string, body: unknown): Promise<T> {
+  return request<T>("PATCH", path, body);
+}
+
 export function del(path: string): Promise<void> {
   return request<void>("DELETE", path);
 }

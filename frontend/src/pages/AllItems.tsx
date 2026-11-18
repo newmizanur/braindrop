@@ -1,21 +1,17 @@
-import { Badge } from '@mantine/core'
 import { IconList } from '@tabler/icons-react'
-import { EmptyState } from '../components/EmptyState'
-import { PageHeader } from '../components/PageHeader'
+
+import { ItemWorkspace } from '../components/ItemWorkspace'
 
 export function AllItems() {
   return (
-    <>
-      <PageHeader
-        title="All items"
-        description="Tasks, notes, ideas and reminders in one list."
-        action={<Badge variant="light">Milestone 3</Badge>}
-      />
-      <EmptyState
-        icon={IconList}
-        title="No items yet"
-        description="Filtering, sorting, pagination and text search are implemented in milestone 3 together with the items API."
-      />
-    </>
+    <ItemWorkspace
+      title="All items"
+      description="Tasks, notes, ideas and reminders in one list."
+      emptyIcon={IconList}
+      emptyTitle="No items yet"
+      emptyDescription="Create your first item, or capture a thought from the header."
+      showStatusFilter
+      baseFilters={{ sort: 'created_at', order: 'desc' }}
+    />
   )
 }
