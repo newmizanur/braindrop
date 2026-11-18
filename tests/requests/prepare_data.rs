@@ -11,10 +11,24 @@ pub struct LoggedInUser {
 }
 
 pub async fn init_user_login(request: &TestServer, ctx: &AppContext) -> LoggedInUser {
+    init_user_login_as(request, ctx, "loco", USER_EMAIL, USER_PASSWORD).await
+}
+
+/// Register, verify and log in a user with an explicit identity.
+///
+/// The default `init_user_login` uses a fixed account; tests that need a
+/// second user to prove isolation use this variant.
+pub async fn init_user_login_as(
+    request: &TestServer,
+    ctx: &AppContext,
+    name: &str,
+    email: &str,
+    password: &str,
+) -> LoggedInUser {
     let register_payload = serde_json::json!({
-        "name": "loco",
-        "email": USER_EMAIL,
-        "password": USER_PASSWORD
+        "name": name,
+        "email": email,
+        "password": password
     });
 
     //Creating a new user
@@ -22,30 +36,27 @@ pub async fn init_user_login(request: &TestServer, ctx: &AppContext) -> LoggedIn
         .post("/api/auth/register")
         .json(&register_payload)
         .await;
-    let user = users::Model::find_by_email(&ctx.db, USER_EMAIL)
-        .await
-        .unwrap();
+    let user = users::Model::find_by_email(&ctx.db, email).await.unwrap();
 
-    let verify_payload = serde_json::json!({
-        "token": user.email_verification_token,
-    });
-
-    request.post("/api/auth/verify").json(&verify_payload).await;
+    if let Some(token) = user.email_verification_token.clone() {
+        let verify_payload = serde_json::json!({
+            "token": token,
+        });
+        request.post("/api/auth/verify").json(&verify_payload).await;
+    }
 
     let response = request
         .post("/api/auth/login")
         .json(&serde_json::json!({
-            "email": USER_EMAIL,
-            "password": USER_PASSWORD
+            "email": email,
+            "password": password
         }))
         .await;
 
     let login_response: LoginResponse = serde_json::from_str(&response.text()).unwrap();
 
     LoggedInUser {
-        user: users::Model::find_by_email(&ctx.db, USER_EMAIL)
-            .await
-            .unwrap(),
+        user: users::Model::find_by_email(&ctx.db, email).await.unwrap(),
         token: login_response.token,
     }
 }
