@@ -53,6 +53,14 @@ pub struct SettingsPatch {
     pub default_item_type: Option<ItemType>,
     pub default_priority: Option<ItemPriority>,
     pub week_start: Option<i64>,
+    pub ai_enabled: Option<bool>,
+    pub ai_use_server_key: Option<bool>,
+    /// An empty string means "use the server default model".
+    pub ai_model: Option<String>,
+    /// `None` leaves the stored key alone; `Some(None)` removes it and
+    /// `Some(Some(envelope))` replaces it with a newly sealed value. The
+    /// plaintext key never reaches this type.
+    pub ai_api_key_encrypted: Option<Option<String>>,
 }
 
 #[async_trait::async_trait]
@@ -103,6 +111,10 @@ impl Model {
             default_item_type: ActiveValue::set(DEFAULT_ITEM_TYPE.as_str().to_string()),
             default_priority: ActiveValue::set(DEFAULT_PRIORITY.as_str().to_string()),
             week_start: ActiveValue::set(DEFAULT_WEEK_START),
+            ai_enabled: ActiveValue::set(true),
+            ai_use_server_key: ActiveValue::set(true),
+            ai_model: ActiveValue::set(String::new()),
+            ai_api_key_encrypted: ActiveValue::set(None),
             ..Default::default()
         }
         .insert(db)
@@ -147,8 +159,27 @@ impl Model {
         if let Some(week_start) = patch.week_start {
             active.week_start = ActiveValue::set(week_start);
         }
+        if let Some(ai_enabled) = patch.ai_enabled {
+            active.ai_enabled = ActiveValue::set(ai_enabled);
+        }
+        if let Some(ai_use_server_key) = patch.ai_use_server_key {
+            active.ai_use_server_key = ActiveValue::set(ai_use_server_key);
+        }
+        if let Some(ai_model) = patch.ai_model {
+            active.ai_model = ActiveValue::set(ai_model);
+        }
+        if let Some(ai_api_key_encrypted) = patch.ai_api_key_encrypted {
+            active.ai_api_key_encrypted = ActiveValue::set(ai_api_key_encrypted);
+        }
 
         active.update(db).await.map_err(ModelError::from)
+    }
+
+    /// Whether this account has a personal provider key stored (not whether it
+    /// can be decrypted — that needs the server's encryption key).
+    #[must_use]
+    pub fn has_personal_key(&self) -> bool {
+        self.ai_api_key_encrypted.is_some()
     }
 
     /// The timezone used for day boundaries, falling back to UTC.

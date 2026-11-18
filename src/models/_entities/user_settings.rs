@@ -19,6 +19,10 @@ pub struct Model {
     pub week_start: i64,
     #[sea_orm(unique)]
     pub user_id: i64,
+    pub ai_enabled: bool,
+    pub ai_use_server_key: bool,
+    pub ai_model: String,
+    pub ai_api_key_encrypted: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

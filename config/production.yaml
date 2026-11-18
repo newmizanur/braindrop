@@ -130,6 +130,29 @@ settings:
     # Enable to require email verification before login. Only useful when
     # outbound mail is configured.
     require_email_verification: <%= get_env(name="REQUIRE_EMAIL_VERIFICATION", default="false") %>
+  # Optional AI-assisted capture. Every value has a safe empty default so an
+  # installation without AI credentials boots and works normally.
+  ai:
+    enabled: <%= get_env(name="AI_ENABLED", default="false") %>
+    api_key: <%= get_env(name="OPENROUTER_API_KEY", default="") %>
+    model: <%= get_env(name="OPENROUTER_MODEL", default="") %>
+    base_url: <%= get_env(name="OPENROUTER_BASE_URL", default="https://openrouter.ai/api/v1") %>
+    timeout_seconds: <%= get_env(name="AI_TIMEOUT_SECONDS", default="30") %>
+    max_input_chars: <%= get_env(name="AI_MAX_INPUT_CHARS", default="8000") %>
+    max_output_chars: 64000
+    max_items: 20
+    rate_limit_per_minute: <%= get_env(name="AI_RATE_LIMIT_PER_MINUTE", default="10") %>
+    # Required only for personal (BYOK) keys. Generate with
+    # `openssl rand -base64 32` and keep it stable: rotating it makes stored
+    # personal keys unreadable (users must re-enter them).
+    encryption_key: <%= get_env(name="AI_ENCRYPTION_KEY", default="") %>
+
+# Per-user AI rate limiting. In-memory is correct for the single-instance
+# deployment this app targets; a restart clears the counters.
+cache:
+  kind: InMem
+  max_capacity: 1048576
+
 
 # Authentication Configuration
 auth:

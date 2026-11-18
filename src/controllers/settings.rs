@@ -2,6 +2,7 @@ use axum::http::StatusCode;
 use loco_rs::{controller::ErrorDetail, prelude::*};
 
 use crate::{
+    ai::config::AiSettings,
     dtos::settings::{SettingsResponse, UpdateSettingsParams},
     models::{user_settings, users},
 };
@@ -23,7 +24,8 @@ async fn current_user(ctx: &AppContext, auth: &auth::JWT) -> Result<users::Model
 async fn show(auth: auth::JWT, State(ctx): State<AppContext>) -> Result<Response> {
     let user = current_user(&ctx, &auth).await?;
     let settings = user_settings::Model::get_or_create(&ctx.db, user.id).await?;
-    format::json(SettingsResponse::from(settings))
+    let config = AiSettings::from_config(&ctx.config)?;
+    format::json(SettingsResponse::new(&settings, &config))
 }
 
 #[debug_handler]
@@ -33,9 +35,10 @@ async fn update(
     Json(params): Json<UpdateSettingsParams>,
 ) -> Result<Response> {
     let user = current_user(&ctx, &auth).await?;
-    let patch = params.into_patch().map_err(validation_error)?;
+    let config = AiSettings::from_config(&ctx.config)?;
+    let patch = params.into_patch(&config).map_err(validation_error)?;
     let settings = user_settings::Model::update_for_user(&ctx.db, user.id, patch).await?;
-    format::json(SettingsResponse::from(settings))
+    format::json(SettingsResponse::new(&settings, &config))
 }
 
 pub fn routes() -> Routes {

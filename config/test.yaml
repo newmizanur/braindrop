@@ -105,6 +105,24 @@ settings:
   auth:
     allow_registration: <%= get_env(name="ALLOW_REGISTRATION", default="true") %>
     require_email_verification: <%= get_env(name="REQUIRE_EMAIL_VERIFICATION", default="false") %>
+  # AI is off by default so the suite needs no credentials. AI tests set the
+  # environment explicitly and install a mock provider in the shared store.
+  ai:
+    enabled: <%= get_env(name="AI_ENABLED", default="false") %>
+    api_key: <%= get_env(name="OPENROUTER_API_KEY", default="") %>
+    model: <%= get_env(name="OPENROUTER_MODEL", default="") %>
+    base_url: <%= get_env(name="OPENROUTER_BASE_URL", default="https://openrouter.ai/api/v1") %>
+    timeout_seconds: <%= get_env(name="AI_TIMEOUT_SECONDS", default="30") %>
+    max_input_chars: <%= get_env(name="AI_MAX_INPUT_CHARS", default="8000") %>
+    max_output_chars: 64000
+    max_items: 20
+    rate_limit_per_minute: <%= get_env(name="AI_RATE_LIMIT_PER_MINUTE", default="10") %>
+    encryption_key: <%= get_env(name="AI_ENCRYPTION_KEY", default="") %>
+
+cache:
+  kind: InMem
+  max_capacity: 1048576
+
 
 # Authentication Configuration
 auth:

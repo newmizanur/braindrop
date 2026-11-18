@@ -1,3 +1,4 @@
+mod ai;
 mod api_fallback;
 mod auth;
 mod items;

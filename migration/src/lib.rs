@@ -5,6 +5,7 @@ mod m20220101_000001_users;
 
 mod m20261118_145040_items;
 mod m20261118_145151_user_settings;
+mod m20261118_161319_add_ai_settings;
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -14,6 +15,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20220101_000001_users::Migration),
             Box::new(m20261118_145040_items::Migration),
             Box::new(m20261118_145151_user_settings::Migration),
+            Box::new(m20261118_161319_add_ai_settings::Migration),
             // inject-above (do not remove this comment)
         ]
     }
