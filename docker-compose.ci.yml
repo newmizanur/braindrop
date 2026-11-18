@@ -44,6 +44,12 @@ services:
       MAILER_PORT: "1025"
       MAILER_USER: ci
       MAILER_PASSWORD: ci
+      # The Playwright stage starts a mock OpenRouter on this address in the
+      # shared network namespace. No real provider credentials are involved.
+      AI_ENABLED: "true"
+      OPENROUTER_API_KEY: sk-e2e-mock
+      OPENROUTER_MODEL: e2e/mock
+      OPENROUTER_BASE_URL: http://127.0.0.1:8099
     # The image's entrypoint is the CLI itself, so replace it for this
     # one-shot seed-then-serve command.
     entrypoint: ["/bin/sh", "-c"]

@@ -16,6 +16,12 @@ export ALLOW_REGISTRATION=false
 export REQUIRE_EMAIL_VERIFICATION=false
 export E2E_EMAIL="${E2E_EMAIL:-e2e@example.com}"
 export E2E_PASSWORD="${E2E_PASSWORD:-e2e-password}"
+# Playwright starts an OpenRouter-compatible mock on this port. The app uses it
+# only during e2e runs, so no real provider credentials are needed.
+export AI_ENABLED=true
+export OPENROUTER_API_KEY=sk-e2e-mock
+export OPENROUTER_MODEL=e2e/mock
+export OPENROUTER_BASE_URL="http://127.0.0.1:${MOCK_OPENROUTER_PORT:-8099}"
 
 rm -f braindrop_e2e.sqlite braindrop_e2e.sqlite-shm braindrop_e2e.sqlite-wal
 rm -f loco_e2e.sqlite loco_e2e.sqlite-shm loco_e2e.sqlite-wal

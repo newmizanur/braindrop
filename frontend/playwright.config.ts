@@ -8,6 +8,9 @@ const baseURL = process.env.BASE_URL ?? 'http://127.0.0.1:5199'
 export default defineConfig({
   testDir: './e2e',
   outputDir: './test-results',
+  // Starts a local OpenRouter-compatible mock so the AI flow needs no real
+  // credentials. It listens on 127.0.0.1, which Docker CI shares with the app.
+  globalSetup: './e2e/global-setup.ts',
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
