@@ -13,8 +13,8 @@ service.
 ## Status
 
 BrainDrop is under active development. **Milestones 1 (bootstrap), 2 (auth and
-shell hardening) and 3 (items and settings) are complete**; the application is
-not production-ready yet.
+shell hardening), 3 (items and settings) and 4 (AI capture) are complete**; the
+application is not production-ready yet.
 
 | Area | State |
 |---|---|
@@ -23,7 +23,7 @@ not production-ready yet.
 | React + Mantine application shell | Working, installable PWA shell |
 | Docker-first local CI (`./scripts/ci.sh`) | Working |
 | Items, settings, dashboard stats | Working |
-| OpenRouter capture parser | Planned — milestone 4 |
+| Optional OpenRouter capture parser | Working — server key or encrypted per-user key |
 | Telegram / Discord notifications | Planned — milestone 5 |
 | Full deployment compose, publishing, backups | Planned — milestone 6 |
 | Release hardening | Planned — milestone 7 |
@@ -100,6 +100,36 @@ Mailpit if you want to receive verification and password-reset mail:
 docker run --rm -p 1025:1025 -p 8025:8025 axllent/mailpit
 ```
 
+### Optional AI capture
+
+AI is opt-in and entirely optional. Manual capture keeps working with no key.
+To enable the server-wide OpenRouter integration, set:
+
+```env
+AI_ENABLED=true
+OPENROUTER_API_KEY=sk-or-v1-...
+OPENROUTER_MODEL=openai/gpt-4o-mini
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+# Optional: lets users store their own encrypted OpenRouter key
+AI_ENCRYPTION_KEY=<output of `openssl rand -base64 32`>
+```
+
+`AI_TIMEOUT_SECONDS`, `AI_MAX_INPUT_CHARS` and `AI_RATE_LIMIT_PER_MINUTE` bound
+provider requests. The model is never hardcoded: choose the server default with
+`OPENROUTER_MODEL`, and let users override it on the Integrations page.
+
+Users can either use the server key or store a personal key. Personal keys are
+sealed with AES-256-GCM using `AI_ENCRYPTION_KEY`, are never returned by the API
+and never reach browser storage. Without `AI_ENCRYPTION_KEY`, the server key
+path still works; users simply cannot save a personal key. The base URL is
+server configuration only and is never user-configurable.
+
+Captured text and suggestions are sent to the selected provider. The prompt
+includes the user's timezone and local date so relative dates resolve correctly,
+and treats the capture text as untrusted data rather than instructions. Nothing
+is persisted until the user reviews the suggestions and saves the ones they
+want.
+
 ## Commands
 
 | Command | Purpose |
@@ -168,6 +198,9 @@ docs/                specification, architecture, progress, deployment, tasks
 - Public registration is disabled by default; the first account is created with
   `admin:create`.
 - AI and notification integrations are optional and must fail gracefully.
+- Personal OpenRouter keys are encrypted at rest with `AI_ENCRYPTION_KEY` and
+  are never returned by the API, written to logs or stored in the browser.
+  Without `AI_ENCRYPTION_KEY`, only the server key can be used.
 
 ## License
 

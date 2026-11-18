@@ -6,7 +6,8 @@ update it when a milestone changes the design.
 
 ## 1. Status
 
-Milestones 1 (bootstrap) and 2 (auth and shell hardening) are complete:
+Milestones 1 (bootstrap), 2 (auth and shell hardening), 3 (items and settings)
+and 4 (AI capture) are complete:
 
 - Loco application scaffold, generated with SQLite, a SQLite-backed queue and a
   client-side React SPA.
@@ -15,19 +16,22 @@ Milestones 1 (bootstrap) and 2 (auth and shell hardening) are complete:
 - SQLite is the application database and the queue backend. Loco enables WAL for
   file-backed SQLite connections.
 - The frontend has been extended with Mantine, a responsive `AppShell`, theme
-  switching, authentication screens and placeholder pages for the product areas.
+  switching, authentication screens, item views and settings.
 - Unknown `/api/*` routes are answered by a JSON 404 catch-all, so a mistyped API
   path never falls through to the SPA.
 - Authentication is production-shaped: registration and email verification are
   configurable, `admin:create` provisions the first account, and the SPA
   validates its token against `/api/auth/current`.
 - The SPA is an installable PWA whose service worker caches only the app shell.
+- Items, settings, statistics and optional AI-assisted capture are implemented.
+  AI suggestions are reviewed in the quick-capture dialog and are only persisted
+  when the user saves them.
 - `./scripts/ci.sh` runs the full Docker-based validation suite, including a
-  production image build and Playwright smoke tests.
+  production image build and Playwright smoke tests. The AI Playwright flow uses
+  a local mock provider, so CI needs no real credentials.
 
-Items, settings, statistics, AI, notifications, full deployment artifacts and
-release hardening are **not implemented yet**. See `docs/PROGRESS.md` and
-`docs/tasks/`.
+Notifications, full deployment artifacts and release hardening are **not
+implemented yet**. See `docs/PROGRESS.md` and `docs/tasks/`.
 
 ## 2. Design principles
 
@@ -88,12 +92,24 @@ on the SQLite queue.
 src/
   app.rs                    Hooks: routes, workers, tasks, seeds
   auth_policy.rs            Typed registration / verification policy from config
+  ai/                       optional OpenRouter client, prompt, validation, credentials
+    client.rs               provider trait + reqwest chat-completions client
+    config.rs               typed `settings.ai` access and bounds
+    credentials.rs          AES-256-GCM sealing for personal provider keys
+    prompt.rs               delimited untrusted input + response schema
+    suggestions.rs          strict model-output validation
+    availability.rs         server vs personal credential resolution
+    rate_limit.rs           per-user cache-backed limiter
   controllers/              thin HTTP handlers + route tables
     auth.rs                 generated Loco auth (register, login, JWT, ...)
+    ai.rs                   POST /api/ai/parse
     api_fallback.rs         JSON 404 for unknown /api routes
   models/
     _entities/              generated SeaORM entities (never hand-edit)
     users.rs                generated user domain logic
+    items.rs                item domain logic and scoped queries
+    user_settings.rs        preferences and AI credential state
+    stats.rs                dashboard counts
   dtos/                     typed JSON DTOs (ts-rs exports to frontend/src/bindings)
   views/                    response types for the generated auth endpoints
   workers/                  Loco BackgroundWorker implementations
@@ -125,13 +141,14 @@ docs/                       specification, architecture, progress, deployment, t
 
 ### 5.1 Current tables
 
-Only the framework-generated `users` table exists today. Loco's auth, mailer and
-task code depend on it; it must not be replaced.
+`users`, `items` and `user_settings` exist today. Loco's auth, mailer and task
+code depend on `users`; it must not be replaced. Items and settings are
+implemented in milestone 3 and extended with AI preferences in milestone 4.
+`notification_deliveries` remains a milestone 5 plan.
 
-### 5.2 Planned application tables
+### 5.2 Application tables
 
-These are introduced in milestone 3 (items/settings) and milestone 5
-(notifications). Types are SQLite-compatible SeaORM types; timestamps are UTC.
+Types are SQLite-compatible SeaORM types; timestamps are UTC.
 
 #### `items`
 
@@ -169,15 +186,22 @@ includes `user_id = authenticated_user.id`.
 | `default_item_type` | string | default `task` |
 | `default_priority` | string | default `normal` |
 | `week_start` | integer | `0` Sunday … `6` Saturday, default `1` |
+| `ai_enabled` | boolean | account-level AI switch, default true |
+| `ai_use_server_key` | boolean | prefer the server key over a personal one |
+| `ai_model` | string | account model override; empty means the server default |
+| `ai_api_key_encrypted` | text, nullable | AES-256-GCM envelope; never returned |
 | `created_at` | timestamp | UTC |
 | `updated_at` | timestamp | UTC |
 
-AI and notification columns (`ai_enabled`, encrypted credentials, channel
-preferences and delivery tables) are added in milestones 4–5; they are not part
-of the milestone 3 schema.
+AI preferences live in `user_settings`. The server key, model and base URL stay
+in configuration, not in the database. A personal OpenRouter key is sealed as
+`v1:<base64url(nonce || ciphertext || tag)>` with a key derived from
+`AI_ENCRYPTION_KEY`. The API exposes only `has_personal_key`, the resolved
+status and the credential source. Notification channel preferences and delivery
+tables are added in milestone 5.
 
-When milestones 4–5 add secrets, they are encrypted with an externally
-configured key and are never returned by the API. The API will return only
+When later milestones add secrets, they use the same rule: encrypted with an
+externally configured key, never returned by the API, and summarized only with
 booleans such as `telegram_configured`.
 
 #### `notification_deliveries`
@@ -275,22 +299,36 @@ misconfiguration. Loco base64-decodes `JWT_SECRET`, so it must be base64.
 
 ## 8. OpenRouter integration
 
-Milestone 4 adds a small server-side client:
+Milestone 4 implements a small server-side client behind an `AiProvider` trait:
 
-- Config: `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_BASE_URL`.
-- `reqwest` with connect/request timeouts and a bounded response body.
-- Structured JSON output when the model/provider supports it; strict schema
-  validation afterward.
-- The prompt receives the user's timezone and the current date so relative dates
-  ("tomorrow", "December 15") resolve correctly.
+- Config: `AI_ENABLED`, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`,
+  `OPENROUTER_BASE_URL`, `AI_TIMEOUT_SECONDS`, `AI_MAX_INPUT_CHARS`,
+  `AI_RATE_LIMIT_PER_MINUTE` and `AI_ENCRYPTION_KEY`.
+- `reqwest` with rustls, connect/request timeouts and a bounded response body.
+- Structured JSON output (`json_schema`) when the model supports it. If a model
+  rejects `response_format`, the client retries once without it; the system
+  prompt still requires JSON.
+- Strict schema validation afterward: known fields only, valid enums, bounded
+  titles and item counts, parseable dates. Date-only values resolve in the
+  user's timezone and are stored as UTC.
+- The prompt receives the user's timezone and current local date/time so
+  relative dates ("tomorrow", "December 15") resolve correctly.
 - Items without a deadline get `due_at = null`; the model is instructed not to
-  invent dates.
-- User text is delimited and treated as untrusted data, not instructions.
-- Suggestions are returned to the client and are **not persisted** until the user
-  reviews and saves them through `POST /api/items`.
-- Rate limiting per user, input length limits and output item limits.
-- Provider failures return a typed, user-safe error; manual capture still works.
-- Tests mock the provider; CI needs no real API key.
+  invent dates or reminders.
+- User text is delimited inside a JSON envelope and treated as untrusted data,
+  not instructions.
+- Suggestions are returned to the client and are **not persisted** until the
+  user reviews and saves them through `POST /api/items`.
+- Rate limiting is per user and cache-backed. Input length, output size and item
+  counts are bounded.
+- Provider failures map to typed, secret-free HTTP errors (409 disabled or
+  unconfigured, 422 invalid input, 429 rate limited, 504 timeout, 502 provider
+  or invalid response). Manual capture still works.
+- The server key and the per-user key both go through the same resolver. A
+  personal key is sealed with AES-256-GCM and is never logged, returned or
+  written to browser storage.
+- Tests inject a mock `AiProvider` into `ctx.shared_store`; client tests use a
+  local Axum mock server. CI needs no real API key.
 
 ## 9. Notifications
 
@@ -339,14 +377,21 @@ middleware with an `index.html` fallback for client-side routes.
 - Loading, empty and error states are part of each page, not an afterthought.
 - Light/dark/system theme. The account setting is applied on load and saved by
   the Settings page; the header toggle stays instant.
-- Quick capture is a modal in the shell and calls `POST /api/items`. In
-  milestone 4 it can call `/api/ai/parse` and open the review UI.
+- Quick capture is a modal in the shell. Manual capture calls `POST /api/items`
+  and always remains available. "Organize with AI" calls `/api/ai/parse`, then
+  opens editable suggestion cards with selection, removal, retry and a
+  "Save selected" action that posts only the chosen suggestions. AI errors keep
+  the dialog in manual mode.
 - Pages are lazy-loaded per route with `React.lazy` and `Suspense`, keeping the
   initial bundle focused on the shell and authentication.
 - Item views share an `ItemWorkspace` (search, filters, sort, pagination,
   create/edit dialog, delete confirmation, complete/reopen). Today and Upcoming
   derive their windows from the account timezone.
 - Settings covers timezone, theme, default type/priority and week start.
+- Integrations covers optional OpenRouter settings: enable/disable AI, choose
+  server or personal credentials, override the model, and replace/remove a
+  personal key. The resolved status (available/disabled/not configured) is
+  computed server-side. Keys are write-only and masked.
 - TanStack Query invalidates item lists, statistics and settings after each
   mutation so counts and views stay consistent.
 - PWA installability is implemented with `manifest.webmanifest`, generated
@@ -383,10 +428,15 @@ handlers.
 | `HOST` | public base URL | production |
 | `ALLOW_REGISTRATION` | enable public registration | no (default false in milestone 2) |
 | `REQUIRE_EMAIL_VERIFICATION` | require verified email to log in | no |
-| `OPENROUTER_API_KEY` | optional AI provider key | no |
-| `OPENROUTER_MODEL` | optional model id | no |
-| `OPENROUTER_BASE_URL` | provider base URL | no |
-| `SECRETS_KEY` | encryption key for integration credentials | production, if integrations used |
+| `AI_ENABLED` | server-wide AI switch | no (default false) |
+| `OPENROUTER_API_KEY` | optional server AI provider key | no |
+| `OPENROUTER_MODEL` | optional default model id | no |
+| `OPENROUTER_BASE_URL` | provider base URL (server-only) | no |
+| `AI_TIMEOUT_SECONDS` | provider request timeout | no (default 30) |
+| `AI_MAX_INPUT_CHARS` | capture text limit | no (default 8000) |
+| `AI_RATE_LIMIT_PER_MINUTE` | per-user request limit | no (default 10) |
+| `AI_ENCRYPTION_KEY` | base64 32-byte key for personal provider keys | required for BYOK |
+| `SECRETS_KEY` | encryption key for notification credentials | production, if notifications used |
 | `MAILER_*` | SMTP settings | production |
 
 Development config contains a generated JWT secret and local SQLite defaults;
@@ -414,7 +464,11 @@ Backend uses Loco's request/model testing conventions:
 - Registration/verification policy, including `admin:create` idempotency.
 - Authorization and cross-user isolation for every item/settings endpoint.
 - Validation and error shapes.
-- AI parsing with a mocked OpenRouter.
+- AI parsing with a mocked provider: success, multiple suggestions, malformed
+  and oversized responses, unsupported structured output, auth/rate-limit/
+  timeout errors, disabled/unconfigured states, per-user key isolation, encrypted
+  storage, timezone handling and the guarantee that suggestions are not
+  persisted.
 - Notification delivery with mocked providers.
 - Scheduler deduplication and restart recovery.
 - Disabled public registration.
@@ -423,10 +477,13 @@ Frontend:
 
 - TypeScript type-check and production build.
 - ESLint.
-- Vitest for utilities/components.
+- Vitest for utilities/components, including editing, excluding and removing AI
+  suggestions and converting only the selected ones into item payloads.
 - Playwright smoke tests for protected-route redirect, registration visibility,
-  login → dashboard → logout, bad-credential handling, the PWA manifest and
-  service-worker registration (including that no `/api/*` path is cached).
+  login → dashboard → logout, bad-credential handling, item lifecycle, the PWA
+  manifest, service-worker registration (including that no `/api/*` path is
+  cached) and AI-assisted capture. The AI flow uses a local mock provider and
+  covers both successful review/save and manual fallback after a provider error.
 
 CI never requires real external credentials.
 
@@ -485,10 +542,14 @@ Single replica for SQLite. Health checks use Loco's `/_health` and `/_readiness`
 | **SQLite WAL** | Loco 1.3 enables WAL automatically for file-backed SQLite connections; no custom PRAGMA code is needed. |
 | **Single application replica** | SQLite and the SQLite queue are single-writer; horizontal scaling is out of scope. |
 | **JWT in localStorage** | Generated Loco frontend behavior. CSP/XSS review and optional cookie mode remain release hardening (milestone 7). |
+| **Server key plus optional BYOK** | A server key keeps AI usable without user setup; a personal key lets users pay for their own usage. Both resolve through one typed path, and neither is ever returned by the API. |
+| **AES-256-GCM for personal keys** | Authenticated encryption with an externally configured key. The envelope is versioned (`v1:`) so a future key rotation can be handled explicitly. |
+| **Suggestions are never auto-saved** | The review step is the product contract: AI output is untrusted data, and the user chooses what becomes an item. |
+| **In-memory cache for rate limits** | The deployment is single-instance. A restart clears counters, which is acceptable; a shared cache is unnecessary complexity today. |
+| **Mock provider seam** | Tests and Playwright never call OpenRouter. The controller reads an optional provider from `shared_store`, and e2e uses a local HTTP mock. |
 
 ## 17. Open questions
 
 - Exact FTS strategy for input search: FTS5 virtual table vs. indexed `LIKE`.
-- Whether AI credentials are server-wide, per-user, or both (spec allows both).
 - Digest scheduling granularity and default send time.
 - TierHive runtime capabilities and the exact SSH deployment contract.

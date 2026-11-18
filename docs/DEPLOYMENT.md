@@ -70,10 +70,17 @@ MAILER_PORT=587
 MAILER_USER=...
 MAILER_PASSWORD=...
 
-# Optional AI
+# Optional AI (leave disabled/empty for a manual-only installation)
+AI_ENABLED=false
 OPENROUTER_API_KEY=
 OPENROUTER_MODEL=
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+AI_TIMEOUT_SECONDS=30
+AI_MAX_INPUT_CHARS=8000
+AI_RATE_LIMIT_PER_MINUTE=10
+# Required only for per-user (BYOK) keys. Generate with `openssl rand -base64 32`
+# and keep it stable; rotating it makes stored personal keys unreadable.
+AI_ENCRYPTION_KEY=
 
 # Integration credential encryption (required if Telegram/Discord are used)
 SECRETS_KEY=<32-byte base64 or hex key>
@@ -203,6 +210,7 @@ production deployment without explicit authorization.
 - [ ] Email verification policy chosen
 - [ ] SMTP credentials supplied via secrets
 - [ ] AI key optional; feature disabled when absent
+- [ ] `AI_ENCRYPTION_KEY` set and backed up if personal AI keys are allowed
 - [ ] Telegram/Discord credentials encrypted at rest
 - [ ] Volume permissions restricted to the runtime user
 - [ ] Backups encrypted and tested
