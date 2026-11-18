@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import type { SettingsResponse } from '../bindings/SettingsResponse'
+import type { UpdateSettingsParams } from '../bindings/UpdateSettingsParams'
 import { get, patch } from './client'
 import { ITEMS_QUERY_KEY, STATS_QUERY_KEY } from './items'
 
 export const SETTINGS_QUERY_KEY = ['settings'] as const
 
-export type SettingsUpdate = Partial<SettingsResponse>
+export type SettingsUpdate = UpdateSettingsParams
 
 export function useSettings() {
   return useQuery({

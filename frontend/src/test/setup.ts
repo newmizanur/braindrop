@@ -40,3 +40,16 @@ if (!window.ResizeObserver) {
 if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {}
 }
+
+// Mantine's autosizing textarea listens for font-loading events. jsdom does
+// not implement the Font Loading API, so provide an inert event target.
+if (!document.fonts) {
+  Object.defineProperty(document, 'fonts', {
+    configurable: true,
+    value: {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    },
+  })
+}

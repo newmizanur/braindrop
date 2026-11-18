@@ -183,8 +183,8 @@ function SettingsForm({ settings }: SettingsFormProps) {
             p="xs"
           >
             <Text size="xs">
-              AI and notification integrations stay optional and arrive in a
-              later milestone.
+              AI and notification integrations stay optional. Configure AI and
+              credentials on the Integrations page.
             </Text>
           </Alert>
           <Button

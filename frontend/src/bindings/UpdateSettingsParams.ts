@@ -6,4 +6,9 @@ import type { Theme } from "./Theme";
 /**
  * A partial settings update.
  */
-export type UpdateSettingsParams = { timezone?: string | null, theme?: Theme | null, default_item_type?: ItemType | null, default_priority?: ItemPriority | null, week_start?: number | null, };
+export type UpdateSettingsParams = { timezone?: string | null, theme?: Theme | null, default_item_type?: ItemType | null, default_priority?: ItemPriority | null, week_start?: number | null, ai_enabled?: boolean | null, ai_use_server_key?: boolean | null, ai_model?: string | null, 
+/**
+ * Write-only. A non-empty value replaces the stored key; an empty string
+ * removes it. The value is never echoed back.
+ */
+ai_api_key?: string | null, };

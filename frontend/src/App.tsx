@@ -254,6 +254,7 @@ export function App() {
             type: settings.data?.default_item_type,
             priority: settings.data?.default_priority,
           }}
+          ai={settings.data?.ai}
         />
       )}
     </>
