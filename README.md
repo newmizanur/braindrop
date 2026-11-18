@@ -12,9 +12,9 @@ service.
 
 ## Status
 
-BrainDrop is under active development. **Milestones 1 (bootstrap) and 2 (auth
-and shell hardening) are complete**; the application is not production-ready
-yet.
+BrainDrop is under active development. **Milestones 1 (bootstrap), 2 (auth and
+shell hardening) and 3 (items and settings) are complete**; the application is
+not production-ready yet.
 
 | Area | State |
 |---|---|
@@ -22,7 +22,7 @@ yet.
 | Loco JWT authentication | Working, with configurable registration and verification |
 | React + Mantine application shell | Working, installable PWA shell |
 | Docker-first local CI (`./scripts/ci.sh`) | Working |
-| Items, settings, stats | Planned — milestone 3 |
+| Items, settings, dashboard stats | Working |
 | OpenRouter capture parser | Planned — milestone 4 |
 | Telegram / Discord notifications | Planned — milestone 5 |
 | Full deployment compose, publishing, backups | Planned — milestone 6 |

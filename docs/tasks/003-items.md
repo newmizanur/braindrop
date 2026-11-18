@@ -1,6 +1,6 @@
 # Task 003 — Items and Settings
 
-**Status:** Not started
+**Status:** Complete (2026-11-18)
 
 ## Objective
 
@@ -32,22 +32,22 @@ without AI.
 
 ## Implementation checklist
 
-- [ ] Generate the `items` model/migration with `cargo loco generate`; add
+- [x] Generate the `items` model/migration with `cargo loco generate`; add
       indexes and foreign key.
-- [ ] Generate the `user_settings` model/migration; unique `user_id`.
-- [ ] Implement model finders and state transitions (create, update, complete,
+- [x] Generate the `user_settings` model/migration; unique `user_id`.
+- [x] Implement model finders and state transitions (create, update, complete,
       archive, scoped find).
-- [ ] Define request/response DTOs and export TypeScript bindings.
-- [ ] Implement the items controller with JWT auth and ownership checks.
-- [ ] Implement stats aggregation scoped to the user.
-- [ ] Implement settings get/update; never return secrets.
-- [ ] Add request tests for auth, ownership, validation, filters and pagination.
-- [ ] Add model tests and snapshots where appropriate.
-- [ ] Build the item list, item editor, quick capture and filters in the SPA.
-- [ ] Wire the dashboard cards and Today/Upcoming/Completed views.
-- [ ] Add loading, empty and error states.
-- [ ] Keep unknown `/api/*` routes returning JSON 404 (implemented in 001).
-- [ ] Update docs and PROGRESS.
+- [x] Define request/response DTOs and export TypeScript bindings.
+- [x] Implement the items controller with JWT auth and ownership checks.
+- [x] Implement stats aggregation scoped to the user.
+- [x] Implement settings get/update; never return secrets.
+- [x] Add request tests for auth, ownership, validation, filters and pagination.
+- [x] Add model tests and snapshots where appropriate.
+- [x] Build the item list, item editor, quick capture and filters in the SPA.
+- [x] Wire the dashboard cards and Today/Upcoming/Completed views.
+- [x] Add loading, empty and error states.
+- [x] Keep unknown `/api/*` routes returning JSON 404 (implemented in 001).
+- [x] Update docs and PROGRESS.
 
 ## Acceptance criteria
 

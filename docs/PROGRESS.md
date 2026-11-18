@@ -8,7 +8,7 @@ Last updated: **2026-11-18**
 |---|---|---|---|
 | 001 | Bootstrap | **Complete** | Docs, scaffold verification, SQLite + SQLite queue, Mantine shell, builds and tests |
 | 002 | Auth and shell hardening | **Complete** | Registration/verification config, admin task, PWA, Playwright smoke, Docker-first CI |
-| 003 | Items and settings | Not started | Items CRUD, filtering, pagination, stats, settings, item UI |
+| 003 | Items and settings | **Complete** | Items CRUD, filtering, pagination, stats, per-user settings, item UI |
 | 004 | AI capture | Not started | OpenRouter client, `/api/ai/parse`, review UI |
 | 005 | Notifications | Not started | Telegram/Discord, delivery queue, scheduler scans |
 | 006 | Deployment | Not started | Deployment compose, GHCR publishing, TierHive template, backups (image and CI already delivered) |
@@ -244,6 +244,120 @@ None.
 - Development SMTP requires a local catcher (e.g. Mailpit) for verification and
   reset mail.
 
+## Milestone 003 — Items and Settings
+
+### Completed
+
+- Generated the `items` and `user_settings` models and migrations with the
+  native Loco generators, then extended the migrations by hand:
+  - `items.pid` (UUID, unique) is the public identifier; `user_id` is an
+    indexed foreign key with `ON DELETE CASCADE`.
+  - Indexes for `(user_id, status)`, `(user_id, due_at)`,
+    `(user_id, remind_at)`, `(user_id, item_type)` and
+    `(user_id, created_at)`.
+  - The database column is `item_type` (avoiding the Rust keyword) while the
+    JSON field is `type`.
+  - `user_settings.user_id` is unique and cascades with the user.
+- Implemented the typed domain model in `src/models/items.rs`:
+  - enums for type, status and priority with database/JSON round-tripping;
+  - tag normalization (trim, drop empties, case-insensitive de-duplication);
+  - scoped finders, list/filter/sort/pagination and text search;
+  - transactional `create_many` for one-or-many capture;
+  - complete/reopen/archive/update/delete transitions that set their
+    timestamps.
+- Implemented `src/models/user_settings.rs` (defaults, `get_or_create`,
+  scoped update) and `src/models/stats.rs` (dashboard counts).
+- Added timezone helpers in `src/time.rs` using `chrono-tz`. Stats and the
+  Today/Upcoming views compute day/week windows in the user's timezone and
+  compare them as UTC.
+- Added request/response DTOs with `ts-rs` exports:
+  `src/dtos/items.rs` and `src/dtos/settings.rs`.
+  - `PATCH` uses a `Patch<T>` newtype so an absent field and an explicit
+    `null` are distinguishable.
+  - `PATCH /api/settings` follows the same partial-update rules.
+- Implemented the controllers and wired the routes in `src/app.rs`:
+  - `GET/POST /api/items`, `GET/PATCH/DELETE /api/items/:id`
+  - `GET /api/stats`, `GET/PATCH /api/settings`
+  - every lookup is scoped by `user_id`; another user's id (or an
+    unparseable UUID) returns 404.
+  - batch creation returns 201 with `{ "items": [...] }`; an invalid item
+    rolls the whole batch back.
+  - invalid enum values in a JSON body return 422; unknown list statuses
+    return 422.
+- Built the SPA item experience:
+  - real Dashboard (stat cards, due-today and recent-inbox previews), Inbox,
+    Today, Upcoming, All items, Completed and Settings pages;
+  - shared `ItemWorkspace` with create/edit dialog, delete confirmation,
+    complete/reopen, search, filters, sort and pagination;
+  - quick capture in the shell now calls `POST /api/items`;
+  - Settings edits timezone (IANA list), theme, default type/priority and week
+    start, and the stored theme is applied on load;
+  - route-level lazy loading via `React.lazy` and `Suspense`;
+  - TanStack Query invalidation keeps item lists, stats and settings fresh.
+- Tests added:
+  - Rust unit tests for timezone helpers and item model rules;
+  - request tests for CRUD, batch atomicity, cross-user isolation, invalid
+    input, search/filter/pagination, stats, timezone day boundaries and
+    settings persistence;
+  - Vitest tests for item helpers, query building and `ItemCard` interactions;
+  - Playwright `items.spec.ts` covering capture, list, complete/reopen, edit
+    and delete.
+
+### Validation
+
+Single command, Docker-first:
+
+```text
+./scripts/ci.sh                   passed end to end
+```
+
+Contents:
+
+```text
+Rust fmt / clippy / tests         passed — 78 tests (23 unit, 55 integration)
+SQLite migrations                 passed — throwaway database
+Frontend typecheck / lint / tests passed — 22 Vitest tests
+Frontend production build         passed
+Production image + /_health       passed
+Playwright smoke tests            passed — 8 tests
+```
+
+### Decisions
+
+- **Public identifiers are UUID `pid` values.** Integer primary keys never
+  leave the API, and every lookup still includes the authenticated user.
+- **One batch endpoint.** `POST /api/items` accepts a single object or
+  `{ "items": [...] }`; inserts run in one transaction so a partial capture is
+  impossible.
+- **`Patch<T>` instead of sentinel values.** It makes "leave unchanged" and
+  "clear this field" explicit without hand-written deserializers.
+- **`item_type` in SQLite, `type` in JSON.** The column name avoids the Rust
+  keyword while the API keeps the vocabulary from the specification.
+- **Timezone-aware statistics.** The user's IANA timezone (default `UTC`)
+  defines "today" and "this week"; storage and comparisons stay in UTC.
+- **Priority sorting uses a SQL rank.** `urgent → high → normal → low` is
+  ordered correctly instead of alphabetically.
+- **422 for invalid enums.** Enum values are validated in the DTO; an unknown
+  status in a list filter also returns 422 rather than silently returning an
+  empty page.
+- **No FTS5 yet.** Indexed `LIKE` search meets the acceptance criteria at this
+  scale; FTS can be added later without changing the API.
+
+### Blockers
+
+None.
+
+### Known limitations
+
+- Search is `LIKE`-based; no FTS5 ranking or stemming yet.
+- AI capture, notification preferences and delivery remain milestones 4–5. The
+  Integrations page is still a placeholder.
+- `docker-compose.ci.yml` is a CI harness, not the deployment compose file.
+- GitHub Actions is manual-only by instruction.
+- The main frontend chunk is still above 500 kB (Mantine + Tabler icons) even
+  though pages are lazy-loaded; the warning is non-fatal.
+- No strict Content-Security-Policy yet; CSP/XSS hardening remains milestone 7.
+
 ## Next task
 
-**003 — Items and settings.** See `docs/tasks/003-items.md`.
+**004 — AI capture.** See `docs/tasks/004-ai-capture.md`.

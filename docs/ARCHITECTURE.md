@@ -137,24 +137,26 @@ These are introduced in milestone 3 (items/settings) and milestone 5
 
 | Column | Type | Notes |
 |---|---|---|
-| `id` | integer PK | auto-increment |
+| `id` | integer PK | auto-increment, never exposed |
+| `pid` | UUID | public identifier, unique |
 | `user_id` | integer FK → `users.id` | indexed, cascade delete |
 | `title` | string | required, trimmed, length-limited |
 | `content` | text, nullable | free-form body |
-| `type` | string | `task`, `note`, `idea`, `reminder` |
+| `item_type` | string | `task`, `note`, `idea`, `reminder`; exposed as `type` |
 | `category` | string, nullable | indexed, user-defined |
-| `tags` | JSON/text | normalized list, indexed for filtering |
+| `tags` | JSON | normalized list, filtered with `LIKE` |
 | `status` | string | `inbox`, `pending`, `completed`, `archived` |
 | `priority` | string | `low`, `normal`, `high`, `urgent` |
 | `due_at` | timestamp, nullable | UTC |
 | `remind_at` | timestamp, nullable | UTC |
 | `completed_at` | timestamp, nullable | UTC |
+| `archived_at` | timestamp, nullable | UTC |
 | `created_at` | timestamp | UTC |
 | `updated_at` | timestamp | UTC |
 
-Indexes: `(user_id, status)`, `(user_id, due_at)`, `(user_id, remind_at)`,
-`(user_id, type)`, and a search index or FTS5 table if input search needs it.
-Every read and write includes `user_id = authenticated_user.id`.
+Indexes cover `user_id` plus `status`, `due_at`, `remind_at`, `item_type`,
+`created_at`, `completed_at`, `priority` and `category`. Every read and write
+includes `user_id = authenticated_user.id`.
 
 #### `user_settings`
 
@@ -163,19 +165,20 @@ Every read and write includes `user_id = authenticated_user.id`.
 | `id` | integer PK | |
 | `user_id` | integer FK → `users.id` | unique, cascade delete |
 | `timezone` | string | IANA name, default `UTC` |
-| `theme` | string | `system`, `light`, `dark` |
-| `ai_enabled` | boolean | default false |
-| `ai_model` | string, nullable | optional per-user override |
-| `ai_api_key_ciphertext` | text, nullable | authenticated encryption |
-| `notification_preferences` | JSON | channel toggles and digest time |
-| `telegram_chat_id` | string, nullable | not secret |
-| `telegram_token_ciphertext` | text, nullable | authenticated encryption |
-| `discord_webhook_ciphertext` | text, nullable | authenticated encryption |
+| `theme` | string | `auto`, `light`, `dark` |
+| `default_item_type` | string | default `task` |
+| `default_priority` | string | default `normal` |
+| `week_start` | integer | `0` Sunday … `6` Saturday, default `1` |
 | `created_at` | timestamp | UTC |
 | `updated_at` | timestamp | UTC |
 
-Secrets are encrypted with an externally configured key and are never returned by
-the API. The API returns only booleans such as `telegram_configured`.
+AI and notification columns (`ai_enabled`, encrypted credentials, channel
+preferences and delivery tables) are added in milestones 4–5; they are not part
+of the milestone 3 schema.
+
+When milestones 4–5 add secrets, they are encrypted with an externally
+configured key and are never returned by the API. The API will return only
+booleans such as `telegram_configured`.
 
 #### `notification_deliveries`
 
@@ -234,9 +237,13 @@ Conventions:
 - JSON request and response bodies, typed DTOs in `src/dtos/`.
 - `ts-rs` exports TypeScript bindings into `frontend/src/bindings/`.
 - Validation is declared on DTOs/models and returns 400/422 with a consistent
-  error body.
+  error body. Invalid enum values return 422.
 - Not found and not-owned return 404; unauthenticated returns 401.
 - No entity is serialized directly; handlers render DTOs.
+- `POST /api/items` accepts one item or `{ "items": [...] }` and inserts the
+  batch in a single transaction. `GET /api/items` filters by `q`, `type`,
+  `status` (comma-separated), `priority`, `category`, `tag`, `due_from` and
+  `due_to`, with `sort`, `order`, `page` and `page_size`.
 - Unknown `/api/*` routes return JSON errors, never the SPA HTML.
 
 ## 7. Authentication and authorization
@@ -330,10 +337,18 @@ middleware with an `index.html` fallback for client-side routes.
   clearing token + query cache when validation fails.
 - Mantine Notifications for transient feedback.
 - Loading, empty and error states are part of each page, not an afterthought.
-- Light/dark/system theme, persisted by Mantine; the initial color scheme is set
-  before paint to avoid a flash.
-- Quick capture is a modal in the shell. In milestone 3 it calls `POST /api/items`;
-  in milestone 4 it can call `/api/ai/parse` and open the review UI.
+- Light/dark/system theme. The account setting is applied on load and saved by
+  the Settings page; the header toggle stays instant.
+- Quick capture is a modal in the shell and calls `POST /api/items`. In
+  milestone 4 it can call `/api/ai/parse` and open the review UI.
+- Pages are lazy-loaded per route with `React.lazy` and `Suspense`, keeping the
+  initial bundle focused on the shell and authentication.
+- Item views share an `ItemWorkspace` (search, filters, sort, pagination,
+  create/edit dialog, delete confirmation, complete/reopen). Today and Upcoming
+  derive their windows from the account timezone.
+- Settings covers timezone, theme, default type/priority and week start.
+- TanStack Query invalidates item lists, statistics and settings after each
+  mutation so counts and views stay consistent.
 - PWA installability is implemented with `manifest.webmanifest`, generated
   icons and a minimal service worker. The worker caches only the app shell and
   static assets; `/api/*`, `/_*` and all non-GET requests bypass the cache. It is
