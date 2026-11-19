@@ -5,11 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - 2026-11-19
+## [0.1.0] - 2026-11-20
 
-First release of BrainDrop. This entry collects everything delivered in
-milestones 001–006 plus the Task 007 release hardening. Version `0.1.0` is set
-in `Cargo.toml` and `frontend/package.json`.
+First release of BrainDrop. This entry collects milestones 001–010, including
+independent review remediation and deployment validation. Version `0.1.0` is
+set in `Cargo.toml` and `frontend/package.json`.
 
 ### Added
 
@@ -44,6 +44,25 @@ in `Cargo.toml` and `frontend/package.json`.
 - **Release documentation:** `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
   `SECURITY.md`, this changelog and `docs/releases/v0.1.0.md`, plus README
   documentation of security posture and screenshots.
+
+### Remediation and deployment
+
+- **Security and SQLite (009):** atomic magic-link consumption, client-level
+  authentication throttling, bounded password validation, shorter database
+  transactions, bounded SQLite pools, conditional dashboard aggregates and
+  reviewed indexes.
+- **API contracts (009):** centralized ts-rs export configuration, strict
+  enum bindings, corrected nullable fields, shared validation, and explicit
+  binding drift checks.
+- **Notifications and operations (009):** bounded retry of transient
+  preparation failures, shared HTTP clients, queue-first backups and
+  restore-tested delivery recovery.
+- **Native deployment (010):** flat runtime layout, explicit service ownership
+  and permissions, safe state migration, code rollback archive, runtime-only
+  deployment bundles, and archive metadata normalization.
+- **Hosting validation (010):** documented Fly.io single-machine demo
+  configuration, TierHive/OpenRC deployment, resource samples and
+  limitations. External proxy configuration remains operator-owned.
 
 ### Changed
 
@@ -94,5 +113,6 @@ in `Cargo.toml` and `frontend/package.json`.
 - The frontend still stores the JWT in `localStorage`; the strict CSP and
   no-store policy reduce but do not remove that residual XSS risk.
 - SQLite is single-writer; one application replica is supported.
-- An actual SSH deployment, real Alpine/Ubuntu service boot and TierHive
-  behaviour were not exercised automatically and are documented, not claimed.
+- The authorized TierHive Alpine/OpenRC deployment and Fly.io deployment were
+  exercised, but TierHive reboot/authenticated workflows, full proxy-chain
+  validation and sustained resource capacity remain untested.

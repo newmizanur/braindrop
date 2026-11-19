@@ -21,6 +21,14 @@ target/
 *.sqlite3
 *.db
 
+# Local release artifacts and runtime state
+/dist/
+*.tar.gz
+*.log
+logs/
+backup/
+backups/
+
 # Environment and secrets — never commit a real .env
 .env
 .env.*

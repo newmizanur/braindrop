@@ -44,8 +44,9 @@ BrainDrop is a self-hosted, single-node application. The operator owns the TLS
 termination point, the persistent SQLite files and the environment file. The
 v0.1.0 hardening covers authenticated ownership on every data query, typed
 validation, secret handling, outbound destination restrictions, browser caching,
-security headers and authentication rate limits. Release validation is still
-pending; this document describes the implemented posture, not a certification.
+security headers and authentication rate limits. Local release validation has
+passed, with documented platform and remote-validation limits; this document
+describes the implemented posture, not a certification.
 
 ### Public Internet exposure
 

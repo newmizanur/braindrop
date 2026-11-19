@@ -1,11 +1,11 @@
 # BrainDrop
 
-**Capture anything. Organize automatically.**
+**A lightweight, self-hosted, AI-optional personal inbox.**
 
-BrainDrop is an open-source, lightweight, self-hostable personal inbox, task and
-reminder manager. Drop in an unstructured thought — *"Buy milk tomorrow, renew my
-domain on December 15, and learn Rust async programming"* — and BrainDrop turns
-it into structured items you can review, edit and save.
+Capture thoughts, tasks, notes and reminders in one place. Drop in an
+unstructured thought — *"Buy milk tomorrow, renew my domain on December 15,
+and learn Rust async programming"* — and review the structured items BrainDrop
+suggests.
 
 AI is optional. Every core feature works without an API key or any external
 service. **No AI, Telegram or Discord credentials are required for capture,
@@ -13,10 +13,11 @@ tasks, notes, ideas, reminders, search, statistics or settings.**
 
 ## Status
 
-**Implementation and Task 009 review remediation for v0.1.0 are complete.**
-Final validation and packaging are recorded in [`docs/PROGRESS.md`](docs/PROGRESS.md).
-Tagging, publishing and deployment have not happened and require explicit
-authorization.
+**BrainDrop v0.1.0 is prepared for release.** Local validation passed and the
+authorized Fly.io and TierHive deployments are running. The tag, GitHub release
+and container publication are awaiting approval. See
+[`docs/releases/v0.1.0.md`](docs/releases/v0.1.0.md) for release notes and
+[`docs/PROGRESS.md`](docs/PROGRESS.md) for validation status.
 
 | Area | State |
 |---|---|
@@ -31,7 +32,7 @@ authorization.
 | Native binaries and SSH deployment | Working — six targets, Makefile, Alpine/Ubuntu services |
 | Task 007 release hardening | Complete — security headers, no-store cache policy, auth rate limits, release docs and full Docker-first CI |
 | Task 009 review remediation | Complete — atomic auth, bounded SQLite pools, generated API contracts, retry-safe notifications and safer backups/releases |
-| Task 010 deployment validation | Fly.io is running; TierHive OpenRC is running after the owner corrected an executable permission issue; final authenticated and resource checks are in progress |
+| Task 010 deployment validation | Fly.io and TierHive are running; TierHive public HTTPS now works through Cloudflare; some origin-proxy and authenticated checks remain unverified |
 
 Current release line: **v0.1.0** — see
 [`docs/releases/v0.1.0.md`](docs/releases/v0.1.0.md) and
@@ -64,15 +65,15 @@ session. They are committed in `docs/screenshots/` and can be regenerated with
 
 - Rust (stable) and [Loco](https://loco.rs) 1.3.x
 - Axum through Loco, SeaORM, SQLite (WAL)
-- Loco native workers and scheduler, SQLite-backed queue
+- Single-process Rust backend with Loco workers and scheduler, SQLite-backed queue
 - React 19, TypeScript, Vite, React Router
 - [Mantine](https://mantine.dev) 9, Mantine Hooks / Dates / Notifications
 - Tabler Icons and TanStack Query
 - OpenRouter (optional), Telegram Bot API, Discord webhooks
 - Docker and GitHub Actions
 
-No Redis, PostgreSQL, message broker, vector database or microservice is
-required.
+Multi-user accounts are supported. No Redis, PostgreSQL, message broker, vector
+database or microservice is required.
 
 ## Quick start
 
@@ -120,6 +121,17 @@ printf '%s\n' "$ADMIN_PASSWORD" | cargo loco task admin:create \
 unset ADMIN_PASSWORD
 ```
 
+For a running Compose deployment, use the same task inside the app container:
+
+```sh
+read -r -s -p "Admin password: " ADMIN_PASSWORD
+printf '\n'
+printf '%s\n' "$ADMIN_PASSWORD" | docker compose exec -T app \
+  /usr/local/bin/braindrop-cli task admin:create \
+  email:admin@example.com name:"Admin" password_stdin:true
+unset ADMIN_PASSWORD
+```
+
 Set `ALLOW_REGISTRATION=true` to let visitors create their own accounts, and
 `REQUIRE_EMAIL_VERIFICATION=true` to require a verified address before login.
 Both are read from the environment through `config/<env>.yaml`.
@@ -133,91 +145,20 @@ docker run --rm -p 1025:1025 -p 8025:8025 axllent/mailpit
 
 ### Optional AI capture
 
-AI is opt-in and entirely optional. Manual capture keeps working with no key.
-To enable the server-wide OpenRouter integration, set:
-
-```env
-AI_ENABLED=true
-OPENROUTER_API_KEY=sk-or-v1-...
-OPENROUTER_MODEL=openai/gpt-4o-mini
-OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-# Optional: lets users store their own encrypted OpenRouter key
-AI_ENCRYPTION_KEY=<output of `openssl rand -base64 32`>
-```
-
-`AI_TIMEOUT_SECONDS`, `AI_MAX_INPUT_CHARS` and `AI_RATE_LIMIT_PER_MINUTE` bound
-provider requests. The model is never hardcoded: choose the server default with
-`OPENROUTER_MODEL`, and let users override it on the Integrations page.
-
-Users can either use the server key or store a personal key. Personal keys are
-sealed with AES-256-GCM using `AI_ENCRYPTION_KEY`, are never returned by the API
-and never reach browser storage. Without `AI_ENCRYPTION_KEY`, the server key
-path still works; users simply cannot save a personal key. The base URL is
-server configuration only and is never user-configurable.
-
-Captured text and suggestions are sent to the selected provider. The prompt
-includes the user's timezone and local date so relative dates resolve correctly,
-and treats the capture text as untrusted data rather than instructions. Nothing
-is persisted until the user reviews the suggestions and saves the ones they
-want.
+Manual capture never requires AI. Optional OpenRouter parsing suggests typed,
+timezone-aware items for review before anything is saved. Users can bring a
+personal API key, encrypted at rest and never returned to the browser. See the
+[configuration guide](docs/DEPLOYMENT.md#6-configuration) and
+[AI architecture notes](docs/ARCHITECTURE.md#8-openrouter-integration).
 
 ### Optional notifications
 
-Notifications are opt-in, per user, and independent for Telegram and Discord.
-Both channels are off until the user enables them and stores credentials on the
-Integrations page. BrainDrop never needs a bot gateway connection: Telegram uses
-the Bot API and Discord uses a channel webhook.
-
-```env
-# Optional: falls back to AI_ENCRYPTION_KEY when empty
-NOTIFICATION_ENCRYPTION_KEY=<output of `openssl rand -base64 32`>
-NOTIFICATION_TIMEOUT_SECONDS=10
-NOTIFICATION_MAX_ATTEMPTS=5
-NOTIFICATION_RETRY_BASE_SECONDS=30
-NOTIFICATION_RETRY_MAX_SECONDS=3600
-NOTIFICATION_HISTORY_RETENTION_DAYS=30
-NOTIFICATION_TEST_RATE_LIMIT=5
-```
-
-Users choose scheduled reminders, a daily digest at a local delivery time and
-grouped overdue notifications in Settings. The digest and overdue schedules use
-the account timezone. Empty digests are skipped. Completed, archived and deleted
-items are never sent, and a reminder that is edited before delivery is cancelled.
-
-Every intended delivery is written to `notification_deliveries` before a queue
-job is enqueued. A unique deduplication key makes repeated scheduler scans safe,
-and a recovery scan requeues pending or abandoned deliveries after a restart.
-Delivery is **at-least-once**: providers do not offer exactly-once semantics, so
-a retry after an ambiguous network failure can produce a duplicate message.
-
-Telegram tokens and Discord webhook URLs are sealed with AES-256-GCM, are never
-returned by the API and never reach browser storage. Outbound requests are
-restricted to the official Telegram API and Discord webhook hosts; redirects are
-disabled. The `POST /api/notifications/test` endpoint is rate-limited per user.
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#9-notifications) for the
-delivery lifecycle.
-
-## Commands
-
-| Command | Purpose |
-|---|---|
-| `cargo loco start` | Run the HTTP server |
-| `cargo loco start --worker` | Run a background worker process |
-| `cargo loco start --scheduler` | Run the scheduler process |
-| `cargo loco start --all` | Run server, worker and scheduler together |
-| `cargo loco routes` | List registered routes |
-| `cargo loco db migrate` | Apply migrations |
-| `cargo loco db entities` | Regenerate SeaORM entities from the schema |
-| `cargo loco task <name>` | Run a CLI task |
-| `cargo loco doctor` | Diagnose environment and configuration |
-| `pnpm --dir frontend build` | Type-check and build the SPA into `frontend/dist` |
-| `pnpm --dir frontend lint` | ESLint |
-| `pnpm --dir frontend test` | Vitest |
-| `pnpm --dir frontend exec playwright test` | Playwright smoke tests |
-| `./scripts/ci.sh` | Run the complete Docker CI pipeline |
-| `make help` | List build, packaging and deployment targets |
-| `make build-all` | Build all six native release targets |
-| `make deploy-init` / `make deploy-linux` | First install / update over SSH |
+Per-user Telegram and Discord integrations can send reminders, daily digests
+and overdue summaries. Credentials are encrypted at rest; durable delivery
+records support deduplication and retries. Delivery is at-least-once, so a
+duplicate can occur after an ambiguous provider failure. See the
+[configuration guide](docs/DEPLOYMENT.md#6-configuration) and
+[notification lifecycle](docs/ARCHITECTURE.md#9-notifications).
 
 ## Deployment
 
@@ -241,6 +182,21 @@ make fly-init
 make fly-deploy
 ```
 
+After publication, use the prebuilt multi-architecture Docker image with the
+existing Compose configuration:
+
+```sh
+BRAINDROP_IMAGE=ghcr.io/newmizanur/braindrop:v0.1.0 docker compose pull app
+BRAINDROP_IMAGE=ghcr.io/newmizanur/braindrop:v0.1.0 docker compose up -d --no-build
+```
+
+Native release archives include the binary, production config, compiled
+frontend and backup/restore helpers. Download the matching Linux musl/glibc or
+macOS ARM64/x86_64 archive from the
+[GitHub Releases page](https://github.com/newmizanur/braindrop/releases), then
+follow [DEPLOYMENT.md](docs/DEPLOYMENT.md). SSH deployment installs the
+appropriate Alpine/OpenRC or Ubuntu/systemd service.
+
 Docker Compose is the default always-on path. Native deployment uses Alpine /
 OpenRC or Ubuntu / systemd archives; Fly.io is an optional managed Docker path
 with an idle-stopping demo profile.
@@ -254,109 +210,45 @@ restore-tested in CI.
 See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full contract, security
 checklist, upgrade/rollback flow and validation status.
 
-Task 009's local pool comparison reached 1,502 requests/second at pool max 4
-with 37 MB sampled process RSS. This is a synthetic single-host result, not a
-capacity or 128/256 MiB reliability claim; see [`docs/BENCHMARK.md`](docs/BENCHMARK.md)
-for the method and limitations.
+### Measured resource use
 
-## Continuous integration
+Recent samples observed about **17.1 MiB native process RSS** on an Alpine VPS,
+**23.4 MiB process RSS** on the Fly.io Docker machine, and **12.7 MiB sampled
+container memory** for a small local Docker workload. These use different
+measurement methods and environments. They are not minimum-memory or
+production-capacity claims. See [`docs/BENCHMARK.md`](docs/BENCHMARK.md) for
+methodology, latency results and limitations.
 
-`./scripts/ci.sh` is the single validation entry point. It builds the CI and
-production images with `docker-compose.ci.yml` and runs, in order:
+## Validation
 
-1. Rust formatting, Clippy, tests and a clean SQLite migration, plus the
-   backup/restore self-test, deploy argument validation and package layout
-   checks.
-2. Frontend type-check, lint, unit tests and production build.
-3. The production Docker image, including `/_health`, plus a log check that Loco
-   started the HTTP server, worker and scheduler (`start --all`).
-4. A persistence probe: create an item through the API, restart the container,
-   confirm the item survived, and run an in-container SQLite backup.
-5. Playwright smoke tests against that image.
-
-Cargo caches live in named Docker volumes and the pnpm store in a BuildKit cache
-mount, so repeated runs are fast. Test databases are created inside containers;
-development and production data are never mounted.
-
-GitHub Actions is intentionally **manual-only** (`workflow_dispatch`) for now
-and calls the same script, so local and hosted runs cannot drift.
-
-## Project layout
-
-```text
-src/                 Loco backend (controllers, models, workers, tasks, mailers)
-migration/           SeaORM migrations
-config/              development / test / production configuration
-frontend/            React + Mantine SPA (built into frontend/dist)
-tests/               Loco request, model, task and worker tests
-docker/ci/           Dockerfiles for the CI stages
-docker/native/       glibc release toolchain image
-scripts/             CI, build, package, deploy, backup and restore scripts
-Makefile             local, build, package and deploy entry points
-docs/                specification, architecture, progress, deployment, tasks
-```
+Run ./scripts/ci.sh for the complete Docker-based Rust, frontend,
+persistence, backup/restore, production-image and Playwright checks. GitHub
+Actions remains manual-only and calls this same script.
 
 ## Documentation
 
-- [`docs/SPEC.md`](docs/SPEC.md) — product and technical specification
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how the system is put together
-- [`docs/PROGRESS.md`](docs/PROGRESS.md) — milestone status and handoff notes
-- [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — production deployment plan
+- [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — installation, configuration, upgrades and backups
 - [`docs/BENCHMARK.md`](docs/BENCHMARK.md) — SQLite pool results and measurement limits
-- [`docs/tasks/010-deployment-validation.md`](docs/tasks/010-deployment-validation.md) — Task 010 deployment validation record
-- [`docs/tasks/`](docs/tasks/) — milestone-by-milestone implementation plan
 - [`docs/releases/v0.1.0.md`](docs/releases/v0.1.0.md) — release notes and checklist
 - [`CHANGELOG.md`](CHANGELOG.md) — release history
 - [`SECURITY.md`](SECURITY.md) — supported version and vulnerability reporting
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — development workflow and conventions
 - [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) — community expectations
-- [`AGENTS.md`](AGENTS.md) — contributor and agent guide for this repository
 
 ## Security
 
-- All application data is scoped to the authenticated user; another user's row
-  returns 404, and unknown API routes return JSON rather than the SPA.
-- Never commit `.env` files, database files, tokens or provider credentials.
-- Production requires `DATABASE_URL`, `QUEUE_URL`, `JWT_SECRET` and `HOST` to be
-  supplied explicitly; there are no production defaults for secrets.
-  `JWT_SECRET` must be base64, because Loco decodes it before signing.
-- Public registration is disabled by default; the first account is created with
-  `admin:create`. Authentication endpoints have in-process rate limits keyed by
-  account and client address (see `REMOTE_IP_SOURCE` in `.env.example`).
-- Every response carries a strict Content-Security-Policy and supporting
-  security headers. `/api/*`, monitoring paths and HTML documents are sent with
-  `Cache-Control: no-store`; the service worker never caches them either.
-- AI and notification integrations are optional, fail gracefully, and are not
-  needed for core features.
-- Personal OpenRouter keys are encrypted at rest with `AI_ENCRYPTION_KEY` and
-  are never returned by the API, written to logs or stored in the browser.
-  Without `AI_ENCRYPTION_KEY`, only the server key can be used. The OpenRouter
-  client disables redirects so a key cannot be sent to a redirect target.
-- Telegram bot tokens and Discord webhook URLs are sealed with
-  `NOTIFICATION_ENCRYPTION_KEY` (or `AI_ENCRYPTION_KEY`), are write-only in the
-  API and are never logged. Outbound hosts are restricted to the official
-  provider endpoints.
+Production requires explicit database URLs, a base64 JWT secret and public
+HOST configuration. Registration is disabled by default; create the first
+account with the admin task. User data is owner-scoped, API responses are
+no-store, and the app sets a strict CSP. OpenRouter keys and notification
+credentials are encrypted at rest and never returned by the API.
 
-### Public exposure and residual risks
-
-If the service is reachable from the Internet (public `HOST`, forwarded port),
-terminate TLS at a trusted reverse proxy, restrict the application port to that
-proxy, set `HOST` to the public HTTPS origin, and add edge rate limiting. BrainDrop
-does **not** send HSTS — configure `Strict-Transport-Security` at the proxy.
-`REMOTE_IP_SOURCE` defaults to `ConnectInfo`; use `RightmostXForwardedFor` only
-behind one trusted proxy that overwrites `X-Forwarded-For`, never on a header a
-client can supply. See [`SECURITY.md`](SECURITY.md) and the
-[deployment security checklist](docs/DEPLOYMENT.md#11-security-checklist).
-
-Known residual risks and compensating controls:
-
-| Residual risk | Compensating control |
-|---|---|
-| The generated SPA stores its JWT in `localStorage`; any XSS can read it. | Strict CSP with no inline/eval scripts, `no-store` on private responses, a service worker that bypasses API paths, no secrets in responses or logs, and `JWT_SECRET` rotation to invalidate sessions if needed. |
-| Rate-limit counters are in memory and reset on restart. | Edge rate limiting at the reverse proxy; one application replica only. |
-| No HSTS from the application. | HSTS configured at the TLS-terminating proxy or load balancer. |
-| Notification delivery is at-least-once, not exactly-once. | Durable delivery rows and deduplication keys; duplicate provider delivery remains possible after an ambiguous failure. |
-| SQLite is single-writer and has no horizontal scaling. | Single-replica deployment with online backup/restore scripts. |
+The frontend keeps JWTs in localStorage, so an XSS flaw could expose a session.
+Rate-limit counters are in memory and reset on restart. Notification delivery
+is at-least-once, and SQLite supports one application replica. Review the
+[security policy](SECURITY.md) and [deployment security checklist](docs/DEPLOYMENT.md#11-security-checklist)
+before exposing an instance to the Internet.
 
 ## License
 

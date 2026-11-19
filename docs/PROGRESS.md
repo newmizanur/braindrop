@@ -15,14 +15,14 @@ Last updated: **2026-11-20**
 | 007 | Release | **Complete** | Security hardening, CSP/headers, release docs, security regression tests, v0.1.0 readiness — `READY WITH LIMITATIONS` |
 | 008 | Independent code review | **Complete** | Senior review recorded in `docs/tasks/008-code-review.md`; actionable findings assigned to Task 009 |
 | 009 | Review remediation | **Complete** | Security, SQLite, DTO, notification, deployment and cleanup findings remediated; final CI and six local packages verified — `READY WITH LIMITATIONS` |
-| 010 | Fly.io demo, TierHive deployment and benchmark documentation | **In progress: both deployments running** | Fly remains on its single-machine demo configuration. TierHive's owner-fixed OpenRC service is running as a non-root user and local health passes; HTTPS, authenticated workflows, backup/rollback and active resource checks remain. See `docs/tasks/010-deployment-validation.md`. |
+| 010 | Fly.io demo, TierHive deployment and benchmark documentation | **Complete with limitations** | Fly and TierHive are running. TierHive HTTPS, health and SPA routing work through Cloudflare; Cloudflare-to-origin TLS, trusted proxy forwarding and authenticated TierHive workflows remain unverified. See `docs/tasks/010-deployment-validation.md`. |
+| 011 | BrainDrop v0.1.0 public release | **Local preparation in progress** | Read-only repository review, release artifact builds, local Docker CI and report are being prepared. Push, tag, GHCR and GitHub release await explicit approval. |
 
-Tasks 001–009 and their review remediation are complete. Task 010 local
-implementation is being extended with a flat native runtime and validated
-permission normalization. Fly.io is deployed under explicit authorization;
-TierHive is now running after the owner fixed the original non-root executable
-permission. External HTTPS still fails its TLS handshake. Nothing was pushed,
-tagged, published or sent to GitHub Actions.
+Tasks 001–010 and their review remediation are complete. Public HTTPS on
+TierHive now routes through Cloudflare and returns healthy application and SPA
+responses. The origin TLS mode and proxy client-IP chain remain unverified.
+Task 011 is preparing the first public release; no push, tag, image publication,
+GitHub release or GitHub Actions run has occurred.
 
 ## Milestone 001 — Bootstrap
 

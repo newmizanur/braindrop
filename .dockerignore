@@ -6,6 +6,12 @@
 docs
 examples
 target
+dist
+*.tar.gz
+*.log
+logs
+backup
+backups
 frontend/node_modules
 frontend/dist
 frontend/coverage

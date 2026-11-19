@@ -44,6 +44,17 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # ---- Runtime --------------------------------------------------------------
 FROM debian:bookworm-slim AS runtime
 
+ARG VERSION=0.1.0
+ARG BUILD_SHA=dev
+
+LABEL org.opencontainers.image.title="BrainDrop" \
+    org.opencontainers.image.description="Lightweight, self-hosted, AI-optional personal inbox for tasks, notes and reminders" \
+    org.opencontainers.image.source="https://github.com/newmizanur/braindrop" \
+    org.opencontainers.image.url="https://github.com/newmizanur/braindrop" \
+    org.opencontainers.image.version="${VERSION}" \
+    org.opencontainers.image.revision="${BUILD_SHA}" \
+    org.opencontainers.image.licenses="MIT"
+
 # curl is used by the container health check and by operators. sqlite3, tar,
 # and gzip support the two shipped backup/restore scripts. No compiler,
 # Node.js, pnpm, development scripts, docs or example environment file ship in

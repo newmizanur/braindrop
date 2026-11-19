@@ -26,6 +26,8 @@ fi
 OUT_DIR="${OUT_DIR:-target/native}"
 BIN_NAME="braindrop-cli"
 REGISTRY_VOLUME="${REGISTRY_VOLUME:-braindrop-cargo-registry}"
+BUILD_SHA="${BUILD_SHA:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}"
+export BUILD_SHA
 
 case "$TARGET" in
   x86_64-unknown-linux-musl | aarch64-unknown-linux-musl | \
@@ -62,6 +64,7 @@ build_musl() {
   docker run --rm \
     -v "$PWD":/home/rust/src \
     -w /home/rust/src \
+    -e "BUILD_SHA=$BUILD_SHA" \
     -v "$REGISTRY_VOLUME":/root/.cargo/registry \
     -v "$volume":/home/rust/src/target \
     "$image" \
@@ -85,6 +88,7 @@ build_gnu() {
   docker run --rm --platform "$platform" \
     -v "$PWD":/app \
     -w /app \
+    -e "BUILD_SHA=$BUILD_SHA" \
     -v "$REGISTRY_VOLUME":/usr/local/cargo/registry \
     -v "$volume":/app/target \
     "$image" \

@@ -200,23 +200,11 @@ and `scripts/ci-rust.sh`. The only application-code change is the existing
 admin CLI's secure stdin password option and its tests. Task 009 auth/API
 contracts, SQLite pool tuning and TypeScript bindings were preserved.
 
-## Remaining limitations and release readiness
+## Remaining limitations at initial Task 010 close (superseded below)
 
-Fly HTTPS/health, volume, UID, restart, cold-start, and disposable-copy
-backup/restore passed. Authenticated item behavior, active workload, exact
-auto-stop delay, and notification delivery were not validated. TierHive Alpine inspection and
-staging passed, but application startup failed; service logs require explicit
-operator approval before their potentially sensitive contents can be read. The
-managed proxy backend/DNS issue also remains. pnpm audit could not reach npm.
-The public demo is not approved for publication and its URL is not in README.
-Native archives were previously checksum-verified; this turn changed no native
-runtime/package contents.
-
-**Fly deployment: RUNNING, PARTIALLY VALIDATED.**
-**TierHive deployment: BLOCKED AT STARTUP AND DNS/PROXY VALIDATION.**
-**Task 010: INCOMPLETE WITH REMOTE VALIDATION LIMITATIONS.**
-No pushes, tags, GitHub Actions, GitHub releases or public image publications
-were made.
+This section records the initial Task 010 report before the later authorized
+TierHive remediation and revalidation. It is superseded by the dated
+continuations below. At that point, public TLS and startup were unresolved.
 
 ## 2026-11-20 continuation: native runtime and remote recheck
 
@@ -230,10 +218,11 @@ at boot, the app process runs as UID 103, the binary is root-owned mode 755,
 link all return 200. Both databases pass integrity checks. This recheck did not
 read production environment values or logs.
 
-The public endpoint's HTTPS request still fails during the TLS handshake with
-an unrecognized-name alert. No authentication credentials were sent over
-public HTTP. Authenticated tests can proceed only through a verified TLS path or
-an SSH tunnel to the local application. The managed proxy/DNS was not changed.
+At this intermediate check, the public endpoint's HTTPS request failed during
+TLS negotiation. The owner later reported that Cloudflare HTTPS was restored;
+the final public check is recorded in the Task 011 addendum below. No
+authentication credentials were sent over public HTTP. The managed proxy/DNS
+was not changed by this work.
 
 Local changes now prepare a flat `/opt/braindrop` runtime, keep service
 definitions under `/etc`, normalize package ownership/modes, exclude macOS
@@ -300,10 +289,14 @@ records and the test key were removed. The process sample is UID 10001,
 lost+found directory; both databases pass integrity checks. Actual native
 idle-stop timing and remote pending-notification recovery were not tested.
 
-The TierHive public hostname continues to fail TLS SNI with an unrecognized
-name. No credentials were sent over public HTTP; managed proxy and DNS remain
-untouched. Permanent administrator creation on either platform is pending the
-operator-provided email and display name. The earlier request is still open.
+Final TierHive public HTTPS validation is recorded in the Task 011 addendum:
+Cloudflare returned HTTP 200 for health, SPA and static assets. The request path
+is working, but the Cloudflare SSL/TLS mode and encryption on the
+Cloudflare-to-origin connection could not be read from public responses. The
+configured app client-IP source is RightmostXForwardedFor; the managed
+Cloudflare/HAProxy forwarding and overwrite behavior was not independently
+observable. Permanent administrator creation on either platform was deferred
+because no identity details were supplied for the earlier request.
 
 The report contains the Task 009 historical pool results and separate
 post-deployment observations. Resource samples are too small to substantiate
@@ -312,9 +305,34 @@ registry DNS resolution; Cargo reports the three documented upstream
 unmaintained advisories with no fixed versions. CI passed on the source revision
 recorded above, and all six package checksum/layout validations passed.
 
-**Task 010: READY WITH LIMITATIONS.** TierHive and Fly are operating, but do not
-use TierHive's public authentication path until its HTTPS/TLS SNI configuration
-is corrected. Permanent admin accounts, TierHive authenticated functionality,
-full reboot, remote notification recovery, sustained/peak resource behavior
-and exact Fly auto-stop timing remain unvalidated. No push, tag, release,
-image publication or GitHub Actions run occurred.
+**Task 010: READY WITH LIMITATIONS.** TierHive and Fly are operating. TierHive
+public HTTPS and health are now validated through Cloudflare, but origin-leg
+encryption, proxy client-IP forwarding, authenticated workflows, full reboot,
+remote notification recovery, sustained/peak resource behavior and exact Fly
+auto-stop timing remain unvalidated. No push, tag, release, image publication
+or GitHub Actions run occurred.
+
+## Task 011 addendum — public HTTPS check (2026-11-20)
+
+Without credentials and without changing Cloudflare, DNS or HAProxy settings,
+read-only curl requests through the public edge returned HTTP 200 for the
+health endpoint, root page, an SPA deep route and a compiled JavaScript asset.
+Responses carried Cloudflare edge headers, BrainDrop security headers and
+Cache-Control no-store on health/API responses. GET /api/auth/config returned
+allow_registration:false; an unauthenticated GET /api/items returned 401 and
+no Access-Control-Allow-Origin for an untrusted origin. An OPTIONS preflight
+received 405 and no CORS allow headers. These checks confirm public routing,
+disabled registration and unauthenticated access controls; they do not validate
+successful login or authorized-user CORS behavior.
+
+The public browser-to-Cloudflare HTTPS leg is verified. The response did not
+include HSTS. Cloudflare documents that Flexible mode leaves the origin leg
+unencrypted, while Full and Full (strict) use HTTPS to the origin; the zone
+setting itself is not visible in public responses, so Cloudflare-to-HAProxy
+encryption remains unknown
+([Cloudflare SSL/TLS modes](https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/)).
+The app's configured REMOTE_IP_SOURCE is RightmostXForwardedFor, but the
+managed Cloudflare and HAProxy forwarding chain could not be inspected, so
+preservation and trust of the real client address remain unverified. A Python
+standard-library probe received a Cloudflare 1010 block; curl succeeded. This
+was a client fingerprinting difference, not an application failure.

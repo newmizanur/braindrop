@@ -104,6 +104,9 @@ jobs:
           file: Dockerfile
           target: runtime
           platforms: linux/amd64,linux/arm64
+          build-args: |
+            VERSION=${{ inputs.version }}
+            BUILD_SHA=${{ github.sha }}
           push: ${{ inputs.publish_image }}
           tags: |
             ghcr.io/${{ github.repository }}:${{ inputs.version }}
