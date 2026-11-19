@@ -10,6 +10,7 @@ pub use super::_entities::users::{self, ActiveModel, Entity, Model};
 pub const MAGIC_LINK_LENGTH: i8 = 32;
 pub const MAGIC_LINK_EXPIRATION_MIN: i8 = 5;
 pub const RESET_TOKEN_EXPIRATION_MIN: i64 = 30;
+pub const EMAIL_VERIFICATION_EXPIRATION_MIN: i64 = 1440;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct LoginParams {
@@ -17,10 +18,13 @@ pub struct LoginParams {
     pub password: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Validate, Deserialize, Serialize)]
 pub struct RegisterParams {
+    #[validate(email(message = "invalid email"))]
     pub email: String,
+    #[validate(length(min = 8, message = "password must be at least 8 characters"))]
     pub password: String,
+    #[validate(length(min = 2, message = "name must be at least 2 characters"))]
     pub name: String,
 }
 
@@ -105,7 +109,25 @@ impl Model {
             )
             .one(db)
             .await?;
-        user.ok_or_else(|| ModelError::EntityNotFound)
+
+        let user = user.ok_or_else(|| ModelError::EntityNotFound)?;
+        if let Some(sent_at) = user.email_verification_sent_at {
+            if sent_at + Duration::minutes(EMAIL_VERIFICATION_EXPIRATION_MIN) >= Local::now() {
+                Ok(user)
+            } else {
+                tracing::debug!(
+                    user_pid = user.pid.to_string(),
+                    "email verification token expired for the user."
+                );
+                Err(ModelError::msg("email verification token expired"))
+            }
+        } else {
+            tracing::error!(
+                user_pid = user.pid.to_string(),
+                "email verification sent time does not exist"
+            );
+            Err(ModelError::msg("email verification sent time not exists"))
+        }
     }
 
     /// finds a user by the magic token and verify and token expiration

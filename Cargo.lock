@@ -675,7 +675,6 @@ dependencies = [
  "insta",
  "loco-rs",
  "migration",
- "regex",
  "reqwest",
  "sea-orm",
  "serde",

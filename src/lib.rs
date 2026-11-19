@@ -1,6 +1,7 @@
 pub mod ai;
 pub mod app;
 pub mod auth_policy;
+pub mod auth_rate_limit;
 pub mod controllers;
 pub mod data;
 pub mod dtos;

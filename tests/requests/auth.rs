@@ -1,6 +1,9 @@
 use braindrop::{app::App, models::users};
 use insta::{assert_debug_snapshot, with_settings};
-use loco_rs::testing::prelude::*;
+use loco_rs::{
+    prelude::{ActiveModelTrait, ActiveValue},
+    testing::prelude::*,
+};
 use serial_test::serial;
 
 use super::prepare_data;
@@ -385,19 +388,47 @@ async fn can_auth_with_magic_link() {
 
 #[tokio::test]
 #[serial]
-async fn can_reject_invalid_email() {
+async fn magic_link_accepts_non_allowlisted_email_domains() {
     configure_insta!();
     request::<App, _, _>(|request, _ctx| async move {
-        let invalid_email = "user1@temp-mail.com";
-        let payload = serde_json::json!({
-            "email": invalid_email,
-        });
+        // Self-hosted instances must work with any mail domain. Unknown
+        // addresses still return 200 so callers cannot enumerate accounts.
+        let email = "user1@temp-mail.example";
+        let payload = serde_json::json!({ "email": email });
         let response = request.post("/api/auth/magic-link").json(&payload).await;
         assert_eq!(
             response.status_code(),
-            400,
-            "Expected request with invalid email '{invalid_email}' to be blocked, but it was allowed."
+            200,
+            "a well-formed address must not be rejected by a domain allowlist"
         );
+    })
+    .await;
+}
+
+#[tokio::test]
+#[serial]
+async fn register_rejects_malformed_email_and_short_password() {
+    configure_insta!();
+    request::<App, _, _>(|request, _ctx| async move {
+        let malformed = request
+            .post("/api/auth/register")
+            .json(&serde_json::json!({
+                "name": "Valid Name",
+                "email": "not-an-email",
+                "password": "long-password"
+            }))
+            .await;
+        assert_eq!(malformed.status_code(), 400);
+
+        let short = request
+            .post("/api/auth/register")
+            .json(&serde_json::json!({
+                "name": "Valid Name",
+                "email": "valid@example.com",
+                "password": "short"
+            }))
+            .await;
+        assert_eq!(short.status_code(), 400);
     })
     .await;
 }
@@ -496,6 +527,248 @@ impl Drop for EnvGuard {
             None => std::env::remove_var(self.key),
         }
     }
+}
+
+#[tokio::test]
+#[serial]
+async fn login_is_rate_limited_per_account() {
+    configure_insta!();
+
+    request::<App, _, _>(|request, _ctx| async move {
+        let email = "rate-limit-login@example.com";
+        let password = "correct-horse-battery";
+        let registered = request
+            .post("/api/auth/register")
+            .json(&serde_json::json!({
+                "name": "Rate Limit",
+                "email": email,
+                "password": password
+            }))
+            .await;
+        assert_eq!(registered.status_code(), 200);
+
+        for _ in 0..10 {
+            let response = request
+                .post("/api/auth/login")
+                .json(&serde_json::json!({ "email": email, "password": "wrong-password" }))
+                .await;
+            assert_eq!(response.status_code(), 401);
+        }
+
+        let blocked = request
+            .post("/api/auth/login")
+            .json(&serde_json::json!({ "email": email, "password": "wrong-password" }))
+            .await;
+        assert_eq!(blocked.status_code(), 429);
+        let body: serde_json::Value = blocked.json();
+        assert_eq!(body["error"], "rate_limited");
+
+        // The final in-window attempt may still present the correct password;
+        // success clears the counter rather than leaving a permanent lockout.
+        let correct = request
+            .post("/api/auth/login")
+            .json(&serde_json::json!({ "email": email, "password": password }))
+            .await;
+        assert_eq!(correct.status_code(), 200);
+
+        for _ in 0..10 {
+            let response = request
+                .post("/api/auth/login")
+                .json(&serde_json::json!({ "email": email, "password": "wrong-password" }))
+                .await;
+            assert_eq!(response.status_code(), 401);
+        }
+        let blocked_again = request
+            .post("/api/auth/login")
+            .json(&serde_json::json!({ "email": email, "password": "wrong-password" }))
+            .await;
+        assert_eq!(blocked_again.status_code(), 429);
+    })
+    .await;
+}
+
+#[tokio::test]
+#[serial]
+async fn forgot_password_is_rate_limited_per_account() {
+    configure_insta!();
+
+    request::<App, _, _>(|request, _ctx| async move {
+        let email = "rate-limit-forgot@example.com";
+        let registered = request
+            .post("/api/auth/register")
+            .json(&serde_json::json!({
+                "name": "Mail Limit",
+                "email": email,
+                "password": "correct-horse-battery"
+            }))
+            .await;
+        assert_eq!(registered.status_code(), 200);
+
+        for _ in 0..5 {
+            let response = request
+                .post("/api/auth/forgot")
+                .json(&serde_json::json!({ "email": email }))
+                .await;
+            assert_eq!(response.status_code(), 200);
+        }
+
+        let blocked = request
+            .post("/api/auth/forgot")
+            .json(&serde_json::json!({ "email": email }))
+            .await;
+        assert_eq!(blocked.status_code(), 429);
+        let body: serde_json::Value = blocked.json();
+        assert_eq!(body["error"], "rate_limited");
+    })
+    .await;
+}
+
+#[tokio::test]
+#[serial]
+async fn verification_tokens_expire() {
+    configure_insta!();
+
+    request::<App, _, _>(|request, ctx| async move {
+        let email = "expired-verification@example.com";
+        let registered = request
+            .post("/api/auth/register")
+            .json(&serde_json::json!({
+                "name": "Expiry Check",
+                "email": email,
+                "password": "correct-horse-battery"
+            }))
+            .await;
+        assert_eq!(registered.status_code(), 200);
+
+        let user = users::Model::find_by_email(&ctx.db, email)
+            .await
+            .expect("registered user must exist");
+        let token = user
+            .email_verification_token
+            .clone()
+            .expect("registration must issue a verification token");
+
+        let mut active: users::ActiveModel = user.into();
+        active.email_verification_sent_at = ActiveValue::set(Some(
+            (chrono::Local::now() - chrono::Duration::days(2)).into(),
+        ));
+        active.update(&ctx.db).await.unwrap();
+
+        let response = request.get(&format!("/api/auth/verify/{token}")).await;
+        assert_eq!(response.status_code(), 401);
+
+        let user = users::Model::find_by_email(&ctx.db, email)
+            .await
+            .expect("registered user must exist");
+        assert!(user.email_verified_at.is_none());
+    })
+    .await;
+}
+
+#[tokio::test]
+#[serial]
+async fn magic_link_verify_honors_require_email_verification() {
+    let _env = EnvGuard::set("REQUIRE_EMAIL_VERIFICATION", "true");
+    configure_insta!();
+
+    request::<App, _, _>(|request, ctx| async move {
+        let email = "unverified-magic@example.com";
+        let registered = request
+            .post("/api/auth/register")
+            .json(&serde_json::json!({
+                "name": "Unverified Magic",
+                "email": email,
+                "password": "correct-horse-battery"
+            }))
+            .await;
+        assert_eq!(registered.status_code(), 200);
+
+        let requested = request
+            .post("/api/auth/magic-link")
+            .json(&serde_json::json!({ "email": email }))
+            .await;
+        assert_eq!(requested.status_code(), 200);
+
+        let user = users::Model::find_by_email(&ctx.db, email)
+            .await
+            .expect("registered user must exist");
+        let token = user
+            .magic_link_token
+            .clone()
+            .expect("magic link request must issue a token");
+
+        let response = request.get(&format!("/api/auth/magic-link/{token}")).await;
+        assert_eq!(response.status_code(), 403);
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["error"], "email_verification_required");
+        assert!(
+            body.get("token").is_none(),
+            "no session token may be issued"
+        );
+
+        // The rejected link is one-time use: verifying the address by email
+        // must not make the old token valid.
+        let user = users::Model::find_by_email(&ctx.db, email)
+            .await
+            .expect("registered user must exist");
+        let mut active: users::ActiveModel = user.into();
+        active.email_verified_at = ActiveValue::set(Some(chrono::Local::now().into()));
+        active.update(&ctx.db).await.unwrap();
+
+        let reused = request.get(&format!("/api/auth/magic-link/{token}")).await;
+        assert_eq!(reused.status_code(), 401);
+    })
+    .await;
+}
+
+#[tokio::test]
+#[serial]
+async fn jwt_query_parameter_is_not_accepted() {
+    configure_insta!();
+
+    request::<App, _, _>(|request, ctx| async move {
+        let logged_in = prepare_data::init_user_login(&request, &ctx).await;
+        let response = request
+            .get(&format!("/api/auth/current?token={}", logged_in.token))
+            .await;
+        assert_eq!(response.status_code(), 401);
+    })
+    .await;
+}
+
+#[tokio::test]
+#[serial]
+async fn duplicate_registration_does_not_disclose_account() {
+    configure_insta!();
+
+    request::<App, _, _>(|request, _ctx| async move {
+        let payload = serde_json::json!({
+            "name": "Duplicate Check",
+            "email": "duplicate@example.com",
+            "password": "correct-horse-battery"
+        });
+        assert_eq!(
+            request
+                .post("/api/auth/register")
+                .json(&payload)
+                .await
+                .status_code(),
+            200
+        );
+
+        let response = request.post("/api/auth/register").json(&payload).await;
+        assert_eq!(
+            response.status_code(),
+            200,
+            "registration must not disclose whether an address is already in use"
+        );
+        let body: serde_json::Value = response.json();
+        assert!(
+            body.get("error").is_none(),
+            "duplicate registration must use the generic success response"
+        );
+    })
+    .await;
 }
 
 #[tokio::test]

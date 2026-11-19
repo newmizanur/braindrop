@@ -1,5 +1,6 @@
 use crate::{
     auth_policy::AuthPolicy,
+    auth_rate_limit::{self, Endpoint as RateLimitEndpoint},
     mailers::auth::AuthMailer,
     models::{
         _entities::users,
@@ -8,27 +9,19 @@ use crate::{
     views::auth::{CurrentResponse, LoginResponse},
 };
 use axum::http::StatusCode;
-use loco_rs::{controller::ErrorDetail, prelude::*};
-use regex::Regex;
+use loco_rs::{controller::ErrorDetail, hash, prelude::*};
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
-
-pub static EMAIL_DOMAIN_RE: OnceLock<Regex> = OnceLock::new();
-
-fn get_allow_email_domain_re() -> &'static Regex {
-    EMAIL_DOMAIN_RE.get_or_init(|| {
-        Regex::new(r"@example\.com$|@gmail\.com$").expect("Failed to compile regex")
-    })
-}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ForgotParams {
     pub email: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Validate, Deserialize, Serialize)]
 pub struct ResetParams {
     pub token: String,
+    #[validate(length(min = 8, message = "password must be at least 8 characters"))]
     pub password: String,
 }
 
@@ -56,6 +49,14 @@ fn forbidden<U>(code: &str, message: &str) -> Result<U> {
     ))
 }
 
+/// A stable hash used to keep unknown-email logins as expensive as real ones.
+fn dummy_password_hash() -> &'static str {
+    static HASH: OnceLock<String> = OnceLock::new();
+    HASH.get_or_init(|| {
+        hash::hash_password("braindrop-dummy-password-for-timing-parity").unwrap_or_default()
+    })
+}
+
 /// Sign a session token for `user`.
 ///
 /// # Errors
@@ -81,31 +82,34 @@ fn issue_token(ctx: &AppContext, user: &users::Model) -> Result<String> {
 #[debug_handler]
 async fn register(
     State(ctx): State<AppContext>,
-    Json(params): Json<RegisterParams>,
+    remote_ip: RemoteIP,
+    JsonValidate(params): JsonValidate<RegisterParams>,
 ) -> Result<Response> {
     let policy = AuthPolicy::from_config(&ctx.config)?;
     if !policy.allow_registration {
-        tracing::info!(
-            email = &params.email,
-            "registration rejected: disabled by policy"
-        );
+        tracing::info!("registration rejected: disabled by policy");
         return forbidden(
             "registration_disabled",
             "Public registration is disabled. Ask an administrator to create an account.",
         );
     }
 
+    auth_rate_limit::check(&ctx, RateLimitEndpoint::Register, &remote_ip, &params.email).await?;
+
     let res = users::Model::create_with_password(&ctx.db, &params).await;
 
     let user = match res {
         Ok(user) => user,
-        Err(err) => {
-            tracing::info!(
-                message = err.to_string(),
-                user_email = &params.email,
-                "could not register user",
-            );
+        Err(ModelError::EntityAlreadyExists) => {
+            // Keep the same response as a fresh registration. The SPA already
+            // uses neutral "check your email" copy so this endpoint cannot be
+            // used as an account oracle; only the server log records the fact.
+            tracing::info!("duplicate registration attempt");
             return format::json(());
+        }
+        Err(err) => {
+            tracing::info!(message = err.to_string(), "could not register user");
+            return Err(Error::InternalServerError);
         }
     };
 
@@ -122,7 +126,12 @@ async fn register(
 /// Verify register user. if the user not verified his email, he can't login to
 /// the system.
 #[debug_handler]
-async fn verify(State(ctx): State<AppContext>, Path(token): Path<String>) -> Result<Response> {
+async fn verify(
+    State(ctx): State<AppContext>,
+    remote_ip: RemoteIP,
+    Path(token): Path<String>,
+) -> Result<Response> {
+    auth_rate_limit::check(&ctx, RateLimitEndpoint::Verify, &remote_ip, &token).await?;
     let Ok(user) = users::Model::find_by_verification_token(&ctx.db, &token).await else {
         return unauthorized("invalid token");
     };
@@ -145,8 +154,10 @@ async fn verify(State(ctx): State<AppContext>, Path(token): Path<String>) -> Res
 #[debug_handler]
 async fn forgot(
     State(ctx): State<AppContext>,
+    remote_ip: RemoteIP,
     Json(params): Json<ForgotParams>,
 ) -> Result<Response> {
+    auth_rate_limit::check(&ctx, RateLimitEndpoint::Forgot, &remote_ip, &params.email).await?;
     let Ok(user) = users::Model::find_by_email(&ctx.db, &params.email).await else {
         // we don't want to expose our users email. if the email is invalid we still
         // returning success to the caller
@@ -165,7 +176,12 @@ async fn forgot(
 
 /// reset user password by the given parameters
 #[debug_handler]
-async fn reset(State(ctx): State<AppContext>, Json(params): Json<ResetParams>) -> Result<Response> {
+async fn reset(
+    State(ctx): State<AppContext>,
+    remote_ip: RemoteIP,
+    JsonValidate(params): JsonValidate<ResetParams>,
+) -> Result<Response> {
+    auth_rate_limit::check(&ctx, RateLimitEndpoint::Reset, &remote_ip, &params.token).await?;
     let Ok(user) = users::Model::find_by_reset_token(&ctx.db, &params.token).await else {
         // we don't want to expose our users email. if the email is invalid we still
         // returning success to the caller
@@ -182,16 +198,25 @@ async fn reset(State(ctx): State<AppContext>, Json(params): Json<ResetParams>) -
 
 /// Creates a user login and returns a token
 #[debug_handler]
-async fn login(State(ctx): State<AppContext>, Json(params): Json<LoginParams>) -> Result<Response> {
+async fn login(
+    State(ctx): State<AppContext>,
+    remote_ip: RemoteIP,
+    Json(params): Json<LoginParams>,
+) -> Result<Response> {
     let Ok(user) = users::Model::find_by_email(&ctx.db, &params.email).await else {
-        tracing::debug!(
-            email = params.email,
-            "login attempt with non-existent email"
-        );
+        // Keep the response time close to a real password check so callers
+        // cannot enumerate accounts by timing.
+        let _ = hash::verify_password(&params.password, dummy_password_hash());
+        auth_rate_limit::check(&ctx, RateLimitEndpoint::Login, &remote_ip, &params.email).await?;
+        tracing::debug!("login attempt with non-existent email");
         return unauthorized("Invalid credentials!");
     };
 
     if !user.verify_password(&params.password) {
+        // Only failed logins consume the budget. A correct password is always
+        // accepted and clears the counter below, so knowing someone's email
+        // cannot be used to keep them locked out.
+        auth_rate_limit::check(&ctx, RateLimitEndpoint::Login, &remote_ip, &params.email).await?;
         return unauthorized("Invalid credentials!");
     }
 
@@ -208,6 +233,7 @@ async fn login(State(ctx): State<AppContext>, Json(params): Json<LoginParams>) -
     }
 
     let token = issue_token(&ctx, &user)?;
+    auth_rate_limit::reset(&ctx, RateLimitEndpoint::Login, &remote_ip, &params.email).await;
 
     format::json(LoginResponse::new(&user, &token))
 }
@@ -245,21 +271,21 @@ async fn auth_config(State(ctx): State<AppContext>) -> Result<Response> {
 /// This flow enhances security by avoiding traditional passwords and providing a seamless login experience.
 async fn magic_link(
     State(ctx): State<AppContext>,
+    remote_ip: RemoteIP,
     Json(params): Json<MagicLinkParams>,
 ) -> Result<Response> {
-    let email_regex = get_allow_email_domain_re();
-    if !email_regex.is_match(&params.email) {
-        tracing::debug!(
-            email = params.email,
-            "The provided email is invalid or does not match the allowed domains"
-        );
-        return bad_request("invalid request");
-    }
+    auth_rate_limit::check(
+        &ctx,
+        RateLimitEndpoint::MagicLink,
+        &remote_ip,
+        &params.email,
+    )
+    .await?;
 
     let Ok(user) = users::Model::find_by_email(&ctx.db, &params.email).await else {
         // we don't want to expose our users email. if the email is invalid we still
         // returning success to the caller
-        tracing::debug!(email = params.email, "user not found by email");
+        tracing::debug!("user not found by email");
         return format::empty_json();
     };
 
@@ -271,18 +297,48 @@ async fn magic_link(
 
 /// Verifies a magic link token and authenticates the user.
 async fn magic_link_verify(
-    Path(token): Path<String>,
+    Path(magic_token): Path<String>,
     State(ctx): State<AppContext>,
+    remote_ip: RemoteIP,
 ) -> Result<Response> {
-    let Ok(user) = users::Model::find_by_magic_token(&ctx.db, &token).await else {
+    auth_rate_limit::check(
+        &ctx,
+        RateLimitEndpoint::MagicLinkVerify,
+        &remote_ip,
+        &magic_token,
+    )
+    .await?;
+    let Ok(user) = users::Model::find_by_magic_token(&ctx.db, &magic_token).await else {
         // we don't want to expose our users email. if the email is invalid we still
         // returning success to the caller
         return unauthorized("unauthorized!");
     };
 
+    let policy = AuthPolicy::from_config(&ctx.config)?;
+    if policy.require_email_verification && user.email_verified_at.is_none() {
+        tracing::info!(
+            pid = user.pid.to_string(),
+            "magic link rejected: email verification required"
+        );
+        // Consume the one-time link even when it cannot be used yet. Otherwise
+        // verifying the address by email would make the old link valid.
+        user.into_active_model().clear_magic_link(&ctx.db).await?;
+        return forbidden(
+            "email_verification_required",
+            "Verify your email address before logging in.",
+        );
+    }
+
     let user = user.into_active_model().clear_magic_link(&ctx.db).await?;
 
     let token = issue_token(&ctx, &user)?;
+    auth_rate_limit::reset(
+        &ctx,
+        RateLimitEndpoint::MagicLinkVerify,
+        &remote_ip,
+        &magic_token,
+    )
+    .await;
 
     format::json(LoginResponse::new(&user, &token))
 }
@@ -290,13 +346,18 @@ async fn magic_link_verify(
 #[debug_handler]
 async fn resend_verification_email(
     State(ctx): State<AppContext>,
+    remote_ip: RemoteIP,
     Json(params): Json<ResendVerificationParams>,
 ) -> Result<Response> {
+    auth_rate_limit::check(
+        &ctx,
+        RateLimitEndpoint::ResendVerification,
+        &remote_ip,
+        &params.email,
+    )
+    .await?;
     let Ok(user) = users::Model::find_by_email(&ctx.db, &params.email).await else {
-        tracing::info!(
-            email = params.email,
-            "User not found for resend verification"
-        );
+        tracing::info!("User not found for resend verification");
         return format::json(());
     };
 
