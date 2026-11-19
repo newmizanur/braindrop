@@ -16,13 +16,15 @@ Last updated: **2026-11-20**
 | 008 | Independent code review | **Complete** | Senior review recorded in `docs/tasks/008-code-review.md`; actionable findings assigned to Task 009 |
 | 009 | Review remediation | **Complete** | Security, SQLite, DTO, notification, deployment and cleanup findings remediated; final CI and six local packages verified — `READY WITH LIMITATIONS` |
 | 010 | Fly.io demo, TierHive deployment and benchmark documentation | **Complete with limitations** | Fly and TierHive are running. TierHive HTTPS, health and SPA routing work through Cloudflare; Cloudflare-to-origin TLS, trusted proxy forwarding and authenticated TierHive workflows remain unverified. See `docs/tasks/010-deployment-validation.md`. |
-| 011 | BrainDrop v0.1.0 public release | **Local preparation in progress** | Read-only repository review, release artifact builds, local Docker CI and report are being prepared. Push, tag, GHCR and GitHub release await explicit approval. |
+| 011 | BrainDrop v0.1.0 public release | **Local preparation complete; awaiting approval** | Release source `86faa3d`, CI, native artifacts and local Docker platform checks are recorded in `docs/tasks/011-release-report.md`. No push, tag, image publication or GitHub release has occurred. |
 
 Tasks 001–010 and their review remediation are complete. Public HTTPS on
 TierHive now routes through Cloudflare and returns healthy application and SPA
 responses. The origin TLS mode and proxy client-IP chain remain unverified.
-Task 011 is preparing the first public release; no push, tag, image publication,
-GitHub release or GitHub Actions run has occurred.
+Task 011 local preparation is complete; no push, tag, image publication,
+GitHub release or GitHub Actions run has occurred. A fresh frontend audit retry
+could not resolve npm registry DNS (`ENOTFOUND`); an earlier audit result is
+historical and does not replace the latest blocked attempt.
 
 ## Milestone 001 — Bootstrap
 
