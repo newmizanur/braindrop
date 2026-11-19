@@ -46,17 +46,25 @@ does not use external AI or notification providers.
 
 ### Local constrained Docker check (2026-11-19)
 
-The production image was run locally with Docker's 128 MiB memory and one CPU
-limit, temporary bind-mounted app/queue SQLite files, and Loco server, worker
-and scheduler running through `start --all`. After startup, an authenticated
-sample created 40 items and read the item list 40 times. Every API request and
-`/_health` succeeded; Docker reported 12.69 MiB container memory at one sample,
-`OOMKilled=false`, uid 10001 and `/data` ownership `10001:999`. App+queue DB
-files were about 152 KiB. The sample HTTP p50/p95 was 2.10/3.96 ms. This is a
-short low-volume local check, not peak memory, active queue-job throughput,
-external-provider work, sustained performance or evidence of production
-reliability at 128 MiB. No comparable 256 MiB runtime result or before/after
-measurement is available.
+The production image was run locally under Docker Desktop on a Darwin ARM64
+development host, with one CPU, temporary bind-mounted app/queue SQLite files,
+and Loco server, worker and scheduler running through `start --all`. Each
+sample logged in an administrator, created 40 items and read the item list 40
+times. This is a tiny deterministic smoke workload, not a sustained benchmark.
+
+| Container memory limit | Sampled Docker memory | OOM killed | Authenticated API p50 / p95 | Requests |
+|---:|---:|---:|---:|---:|
+| 128 MiB | 12.69 MiB | No | 2.10 / 3.96 ms | 40 creates + 40 reads, all passed |
+| 256 MiB | 12.70 MiB | No | 2.15 / 4.59 ms | 40 creates + 40 reads, all passed |
+
+Both samples served `/_health`, ran as uid 10001, and had `/data` owned by
+`10001:999`; the 128 MiB run's app+queue database files totaled about 152 KiB.
+Memory was sampled once using `docker stats`; it is container memory at that
+instant, not process RSS, peak memory, host usage or cgroup high-water mark.
+These results show the small workload can start and complete at both limits,
+but do not establish 128 or 256 MiB production reliability. They had no seeded
+queue jobs, sustained concurrency, memory pressure, large database or real
+provider work. There is no comparable before/after result.
 
 ### Remote deployments
 

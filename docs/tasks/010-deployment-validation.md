@@ -82,17 +82,32 @@ and 40 list reads). Health passed; all HTTP requests succeeded; Docker reported
 12.69 MiB at the sampled time, `OOMKilled=false`; the process used uid 10001 and
 the bind-mounted data directory was owned by `10001:999`. The app+queue DB files
 totaled approximately 152 KiB at sample. Request p50/p95 was 2.10/3.96 ms for
-this small local sample. This is one short low-volume container check, not peak
-memory, active queue-job throughput, a real provider workload, sustained
-capacity, or proof that 128 MiB is reliable in production. No comparable 256
-MiB runtime sample or before/after benchmark is claimed.
+this small local sample. A comparable 256 MiB local Docker sample also
+completed: 12.70 MiB sampled container memory, no OOM kill, API p50/p95
+2.15/4.59 ms, and the same 40 writes and 40 reads. Neither sample is a peak
+memory, active queue-job throughput, real provider workload, sustained capacity,
+or production reliability claim. There is no before/after benchmark.
 
 The locally built production image metadata reports 43,407,177 bytes (about
 41.4 MiB); it runs as uid 10001 with entrypoint `braindrop-cli` and command
 `start --all`. Native binary sizes were: Linux glibc AMD64 21,248,752 bytes,
 ARM64 19,118,992; Linux musl AMD64 21,567,888, ARM64 17,865,096; macOS ARM64
-17,867,696, AMD64 19,106,088. Archive sizes and checksum verification will be
-recorded after packaging.
+17,867,696, AMD64 19,106,088. All six native archives were repackaged from the
+binaries built after implementation commit `65f3972`; package `RELEASE` records
+that source revision. Archive sizes and SHA-256 values:
+
+| Archive | Size | SHA-256 |
+|---|---:|---|
+| `braindrop-linux-amd64-glibc.tar.gz` | 8,822,864 bytes | `efd10263c0fa13a44658291e3d7e660d80d28bf99ecd83ad9c57eb5ad5aeaaf7` |
+| `braindrop-linux-arm64-glibc.tar.gz` | 8,346,639 bytes | `4a814fce34b4f305d609721c763bd4d5315b7fb1d5c8c7ef861319cb86771718` |
+| `braindrop-linux-amd64-musl.tar.gz` | 9,040,096 bytes | `777562ffe91a9f35b59eb96b339a92fe930cc6b51a7f076fb8e79c30a530283b` |
+| `braindrop-linux-arm64-musl.tar.gz` | 8,310,047 bytes | `6b205923de8241ebfb288583d5a040960bdd1389d6763a394bc09631e541b33b` |
+| `braindrop-macos-arm64.tar.gz` | 8,030,822 bytes | `f75a3826fc664b66e60f12897442f4daf6b8c1099d28d20a0d67296375c442aa` |
+| `braindrop-macos-amd64.tar.gz` | 8,564,653 bytes | `06cd3efb3612ff99a93a71b76875bea89c24c52e8e790e9562ebc88d031fe9a7` |
+
+All six sidecars passed `shasum -a 256 -c`; all six package layout checks
+passed. The archive outputs remain ignored local build artifacts and were not
+committed or published.
 
 Native process RSS, container memory and total VPS memory are distinct measures.
 TierHive/Fly startup, idle/active/peak RSS, CPU, endpoint latency, database
@@ -136,8 +151,8 @@ was added.
 - Fly CLI strict configuration validation: **BLOCKED** without an authenticated
   Fly token. It was not possible to assert machine-volume behavior locally.
 - All six native target binaries rebuilt successfully after the documentation
-  and configuration changes. Distribution packaging/checksum verification is
-  pending in the local work sequence.
+  and configuration changes; all six archives were repackaged and checksum /
+  layout-verified as recorded above.
 
 ## Changed files
 
