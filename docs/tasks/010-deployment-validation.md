@@ -122,34 +122,30 @@ completed: 12.70 MiB sampled container memory, no OOM kill, API p50/p95
 memory, active queue-job throughput, real provider workload, sustained capacity,
 or production reliability claim. There is no before/after benchmark.
 
-The locally built production image metadata reports 43,407,177 bytes (about
-41.4 MiB); it runs as uid 10001 with entrypoint `braindrop-cli` and command
-`start --all`. Native binary sizes were: Linux glibc AMD64 21,248,752 bytes,
-ARM64 19,118,992; Linux musl AMD64 21,567,888, ARM64 17,865,096; macOS ARM64
-17,867,696, AMD64 19,106,088. All six native archives were repackaged from the
-binaries built after implementation commit `65f3972`; package `RELEASE` records
-that source revision. Archive sizes and SHA-256 values:
+The deployed production image reported 37 MB and runs as uid 10001 with command
+`start --all`. The six native archives were packaged from binaries built at
+commit `b329cba`; each `RELEASE` file records that revision. Archive sizes
+and SHA-256 values:
 
 | Archive | Size | SHA-256 |
 |---|---:|---|
-| `braindrop-linux-amd64-glibc.tar.gz` | 8,822,864 bytes | `efd10263c0fa13a44658291e3d7e660d80d28bf99ecd83ad9c57eb5ad5aeaaf7` |
-| `braindrop-linux-arm64-glibc.tar.gz` | 8,346,639 bytes | `4a814fce34b4f305d609721c763bd4d5315b7fb1d5c8c7ef861319cb86771718` |
-| `braindrop-linux-amd64-musl.tar.gz` | 9,040,096 bytes | `777562ffe91a9f35b59eb96b339a92fe930cc6b51a7f076fb8e79c30a530283b` |
-| `braindrop-linux-arm64-musl.tar.gz` | 8,310,047 bytes | `6b205923de8241ebfb288583d5a040960bdd1389d6763a394bc09631e541b33b` |
-| `braindrop-macos-arm64.tar.gz` | 8,030,822 bytes | `f75a3826fc664b66e60f12897442f4daf6b8c1099d28d20a0d67296375c442aa` |
-| `braindrop-macos-amd64.tar.gz` | 8,564,653 bytes | `06cd3efb3612ff99a93a71b76875bea89c24c52e8e790e9562ebc88d031fe9a7` |
+| `braindrop-linux-amd64-glibc.tar.gz` | 8,824,539 bytes | `e233f762da8ca3886d15e998b27649ea469ec7c4a63eab93ec992c5295f6769b` |
+| `braindrop-linux-arm64-glibc.tar.gz` | 8,350,127 bytes | `2fe652f4b238493feb3dcf21b1aa1aa83f74b43da3cc3c07615fc29d6ce14e99` |
+| `braindrop-linux-amd64-musl.tar.gz` | 9,040,757 bytes | `d6d8234590b2c223f296527c5da44f1bd8316bceb76bf70ce0023c1f802b336d` |
+| `braindrop-linux-arm64-musl.tar.gz` | 8,311,460 bytes | `f2533a1a3b8df0b19fdcd7b3fdc133b887dadb992220aa2e3c062a6a25fe850e` |
+| `braindrop-macos-arm64.tar.gz` | 8,030,767 bytes | `cb20066c0e2b6f891eb6441962548b75ab86815e5fde30b660b993cf4e9c9888` |
+| `braindrop-macos-amd64.tar.gz` | 8,569,024 bytes | `37f967bf47eab4682b43281ff9cb577cbf3ba46abaf2763d9da3dc11b67c39de` |
 
 All six sidecars passed `shasum -a 256 -c`; all six package layout checks
 passed. The archive outputs remain ignored local build artifacts and were not
 committed or published.
 
 Native process RSS, container memory and total VPS memory are distinct measures.
-Fly startup/health and idle process RSS plus database file sizes are measured;
-TierHive app RSS, both platforms’ active/peak usage, CPU, authenticated endpoint
-latency, sustained workload, database growth and background-job overhead remain
-unmeasured. See the benchmark document for the Task 009 methodology limits
-(no pre-remediation baseline, no separately instrumented pool acquisition
-latency, and no seeded queue jobs).
+See docs/BENCHMARK.md for post-deployment process samples and a small Fly
+authenticated workload. Sustained workload, cgroup peak memory, TierHive
+authenticated latency, CPU utilization and remote notification recovery remain
+unmeasured. Task 009 had no pre-remediation baseline, separately instrumented
+pool acquisition latency or seeded queue jobs.
 
 ## Security and public demo assessment
 
@@ -164,7 +160,7 @@ was added.
 
 ## CI, tests and dependency audit
 
-- `./scripts/ci.sh`: **PASS** — 101 Rust unit tests, 103 Rust integration/model/
+- `./scripts/ci.sh`: **PASS** — 104 Rust unit tests, 103 Rust integration/model/
   task tests, 29 TypeScript binding drift tests, 36 frontend unit tests, 14
   Playwright tests passed and one screenshot test skipped. Clippy/fmt, SQLite
   migrations, backup/restore, production Docker health, worker/scheduler
@@ -192,10 +188,17 @@ was added.
 
 ## Changed files
 
-`fly.toml`, `Makefile`, `.env.example`, `README.md`, `docs/ARCHITECTURE.md`,
-`docs/DEPLOYMENT.md`, `docs/PROGRESS.md`, `docs/BENCHMARK.md`, and this report.
-Task009 runtime code, auth/API contracts, SQLite tuning and regression tests
-were preserved.
+Task 010 changes are in the root `fly.toml`, `Dockerfile`, `Makefile`,
+`.env.example`, `README.md`, `docs/DEPLOYMENT.md`, `docs/PROGRESS.md`,
+`docs/BENCHMARK.md`, and this report. Native deployment changes are in
+`scripts/deploy.sh`,
+`scripts/create-runtime-archive.sh`, `scripts/prepare-release.sh`,
+`scripts/migrate-native-layout.sh`, `scripts/deploy-init-alpine.sh`,
+`scripts/deploy-init-ubuntu.sh`, and `scripts/package.sh`. Regression tests
+are in `scripts/test-package-deploy.sh`, `scripts/test-native-layout-migration.sh`,
+and `scripts/ci-rust.sh`. The only application-code change is the existing
+admin CLI's secure stdin password option and its tests. Task 009 auth/API
+contracts, SQLite pool tuning and TypeScript bindings were preserved.
 
 ## Remaining limitations and release readiness
 
@@ -276,9 +279,42 @@ passes. Account authentication, item persistence after cold start, active
 resource measurements and notification job recovery have not yet been repeated
 in this continuation.
 
-**Task 010 remains incomplete.** The local CI and release rebuild now pass, but
-the updated native flat runtime has not yet been deployed. Authenticated checks
-need the operator's administrator email/display name and a verified TLS or SSH
-transport; the public TLS endpoint currently returns an unrecognized-name
-handshake error. Remote backup/restore, upgrade/rollback, and active resource
-measurements remain outstanding.
+**Superseding final remote validation (2026-11-20):** the paragraph above
+records an intermediate state and is superseded by this section. The flat
+native runtime is deployed on TierHive. It runs as UID 103; OpenRC reports
+started and enabled at boot; health, frontend and SPA deep link return 200;
+both SQLite databases pass integrity checks. TierHive's app+queue directory
+occupies 172 KiB. The process sample is 17,492 KiB RSS and 18,236 KiB HWM; host
+available RAM is 50,228 KiB and free swap 130,072 KiB. The runtime was
+inventoried without reading secret values. Backup/restore against disposable
+databases, deployment upgrade, previous-runtime rollback, redeployment and
+OpenRC restart passed. Full host reboot and TierHive authenticated item
+operations were not performed.
+
+The Fly machine is started and remains exactly one shared CPU/256 MiB machine
+in Singapore with its existing 1 GiB volume and auto-stop/autostart/minimum-zero
+settings. Current health passes. Authenticated create/read, restart persistence
+and encrypted BYOK settings passed using a transient test account; all test
+records and the test key were removed. The process sample is UID 10001,
+23,984 KiB RSS and 41,212 KiB HWM; /data occupies 232 KiB including the
+lost+found directory; both databases pass integrity checks. Actual native
+idle-stop timing and remote pending-notification recovery were not tested.
+
+The TierHive public hostname continues to fail TLS SNI with an unrecognized
+name. No credentials were sent over public HTTP; managed proxy and DNS remain
+untouched. Permanent administrator creation on either platform is pending the
+operator-provided email and display name. The earlier request is still open.
+
+The report contains the Task 009 historical pool results and separate
+post-deployment observations. Resource samples are too small to substantiate
+capacity or reliability at 128/256 MiB. pnpm audit remains blocked by npm
+registry DNS resolution; Cargo reports the three documented upstream
+unmaintained advisories with no fixed versions. CI passed on the source revision
+recorded above, and all six package checksum/layout validations passed.
+
+**Task 010: READY WITH LIMITATIONS.** TierHive and Fly are operating, but do not
+use TierHive's public authentication path until its HTTPS/TLS SNI configuration
+is corrected. Permanent admin accounts, TierHive authenticated functionality,
+full reboot, remote notification recovery, sustained/peak resource behavior
+and exact Fly auto-stop timing remain unvalidated. No push, tag, release,
+image publication or GitHub Actions run occurred.

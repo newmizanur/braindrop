@@ -19,7 +19,9 @@ and are point-in-time checks, not capacity tests.
   expected 403 `registration_disabled` response.
 - Idle process RSS sample: 23,244 kB for `braindrop-cli`, UID 10001. This is
   process RSS, not machine/cgroup memory. No active authenticated workload was
-  run because the initial admin identity is awaiting operator selection.
+  available in this earlier idle sample. A later transient-account workload
+  (described below) verified authenticated item operations and encrypted BYOK
+  settings without retaining test data.
 - App DB: 122,880 bytes; queue DB: 28,672 bytes after migrations. Both passed
   SQLite `PRAGMA integrity_check` after restart/cold start. This validates
   mount persistence. Online backup and restore scripts passed against
@@ -32,7 +34,7 @@ and are point-in-time checks, not capacity tests.
 
 ### TierHive Alpine VPS
 
-Read-only measurements on 2026-11-20 were taken before the flat-layout
+The first read-only snapshot on 2026-11-20 was taken before the flat-layout
 redeployment, against the owner-repaired old release tree. The host ran Alpine
 3.24.4 x86_64, with 95,468 KiB RAM and 131,068 KiB swap. At the sample, 45,692
 KiB RAM and 130,072 KiB swap were free/available. The non-root app process
@@ -45,9 +47,10 @@ The app and queue databases together occupied 160 KiB by `du`; both passed
 Three local health requests returned 200 in 0.7–14.2 ms; the frontend returned
 200 in 1.2 ms and a client-side deep link returned 200 in 0.7 ms. These are
 single-request samples, not authenticated latency or a performance test.
-Startup duration, active workload RSS, CPU, worker/scheduler overhead and
-peak-under-load memory remain unmeasured. The observed database and idle memory
-do not establish reliable capacity on this approximately 93 MiB host.
+The post-deployment sample later that day is described below. Startup duration,
+CPU, worker/scheduler overhead under load and peak-under-load memory remain
+unmeasured. The observed database and idle memory do not establish reliable
+capacity on this approximately 93 MiB host.
 
 The Task 009 local Docker samples (128/256 MiB limits) and historical pool
 benchmark below do not establish reliable production capacity under concurrent
@@ -121,12 +124,39 @@ provider work. There is no comparable before/after result.
 
 ### Remote deployments
 
-The TierHive sample above is a pre-redeployment idle snapshot. Fly's earlier
-idle sample and local constrained-Docker data are recorded separately above;
-they cannot be compared directly with native RSS or TierHive total memory.
-Authenticated active workloads and queued notification jobs have not yet been
-run on either remote host. Until those samples are recorded, there is no basis
-to claim reliable operation within either 128 or 256 MiB under production load.
+#### TierHive post-deployment sample (2026-11-20)
+
+After deploying the flat runtime and restarting through OpenRC, the process
+ran as UID 103 with 17,492 KiB RSS and 18,236 KiB process high-water RSS since
+start. The host reported 50,228 KiB available RAM and 130,072 KiB free swap
+(approximately 93.2 MiB RAM and 128 MiB swap total). The app and queue data
+directory occupied 172 KiB on disk at the sample; both databases passed
+`PRAGMA integrity_check`. Local health returned HTTP 200. This measurement was
+idle; authenticated workload and per-process CPU were not sampled on this host.
+The BusyBox `ps` lacks a CPU percentage field. No full reboot was performed.
+
+#### Fly post-deployment authenticated workload (2026-11-20)
+
+Using a random temporary administrator and password held only in the test
+process, 10 authenticated item creates and 10 list reads succeeded. A machine
+restart then passed; login, item retrieval and encrypted personal-key settings
+persisted. The temporary account, items and test key were removed. The fake
+key was not sent to an external provider and was not present in API responses.
+Over 10 requests per operation, creates had p50/p95 latency of 199.01/276.39
+ms and reads 195.98/205.93 ms. These measurements include public HTTPS and
+request overhead and are small-sample observations, not capacity results.
+
+The app process ran as UID 10001 with 23,984 KiB RSS and 41,212 KiB process
+high-water RSS since start (VmSize 573,052 KiB). `/data` occupied 232 KiB
+including the 16 KiB `lost+found` directory; both SQLite files passed integrity
+checks. Machine shape remained one shared CPU and 256 MiB, one machine and one
+1 GiB encrypted volume. Cgroup peak memory and CPU utilization were not
+captured. Worker/scheduler startup is present in filtered logs; notification
+recovery with a seeded pending remote job was not exercised.
+
+Fly active and TierHive idle samples cannot establish reliable production
+capacity within 128 or 256 MiB. The remote samples are short and omit sustained
+concurrency, large data, queued delivery work and provider execution.
 
 The prior pool test is not evidence that BrainDrop is reliable at either 128 MiB
 or 256 MiB. In particular, it did not measure production container overhead or
