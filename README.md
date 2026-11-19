@@ -8,18 +8,19 @@ domain on December 15, and learn Rust async programming"* — and BrainDrop turn
 it into structured items you can review, edit and save.
 
 AI is optional. Every core feature works without an API key or any external
-service.
+service. **No AI, Telegram or Discord credentials are required for capture,
+tasks, notes, ideas, reminders, search, statistics or settings.**
 
 ## Status
 
-BrainDrop is under active development. **Milestones 1 (bootstrap), 2 (auth and
-shell hardening), 3 (items and settings), 4 (AI capture), 5 (notifications) and
-6 (deployment and distribution) are complete**; release hardening remains.
+**Milestones 1–6 are complete, and release preparation for v0.1.0 is complete
+pending final CI validation.** Tagging, publishing and deployment have not
+happened and require explicit authorization.
 
 | Area | State |
 |---|---|
 | Loco scaffold, SQLite, SQLite-backed queue | Working |
-| Loco JWT authentication | Working, with configurable registration and verification |
+| Loco JWT authentication | Working, with configurable registration, verification and endpoint rate limits |
 | React + Mantine application shell | Working, installable PWA shell |
 | Docker-first local CI (`./scripts/ci.sh`) | Working |
 | Items, settings, dashboard stats | Working |
@@ -27,10 +28,34 @@ shell hardening), 3 (items and settings), 4 (AI capture), 5 (notifications) and
 | Telegram / Discord notifications | Working — opt-in reminders, daily digest and overdue summaries |
 | Docker Compose deployment and backups | Working — production image, persistent volume, health check |
 | Native binaries and SSH deployment | Working — six targets, Makefile, Alpine/Ubuntu services |
-| Release hardening | Planned — milestone 7 |
+| Task 007 release hardening | Complete — security headers, no-store cache policy, auth rate limits, release docs and full Docker-first CI |
 
-See [`docs/PROGRESS.md`](docs/PROGRESS.md) for the current milestone and
-[`docs/tasks/`](docs/tasks/) for the full plan.
+Current release line: **v0.1.0** — see
+[`docs/releases/v0.1.0.md`](docs/releases/v0.1.0.md) and
+[`CHANGELOG.md`](CHANGELOG.md). See [`docs/PROGRESS.md`](docs/PROGRESS.md) for
+the current milestone and [`docs/tasks/`](docs/tasks/) for the full plan.
+
+## Screenshots
+
+These are screenshots of the running SPA, captured from a real authenticated
+session. They are committed in `docs/screenshots/` and can be regenerated with
+`CAPTURE_SCREENSHOTS=1 pnpm --dir frontend test:e2e`:
+
+### Dashboard
+
+![BrainDrop dashboard](docs/screenshots/dashboard.png)
+
+### Inbox
+
+![BrainDrop inbox](docs/screenshots/inbox.png)
+
+### Quick capture
+
+![BrainDrop quick capture](docs/screenshots/quick-capture.png)
+
+### Integrations
+
+![BrainDrop integrations](docs/screenshots/integrations.png)
 
 ## Stack
 
@@ -260,25 +285,58 @@ docs/                specification, architecture, progress, deployment, tasks
 - [`docs/PROGRESS.md`](docs/PROGRESS.md) — milestone status and handoff notes
 - [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — production deployment plan
 - [`docs/tasks/`](docs/tasks/) — milestone-by-milestone implementation plan
+- [`docs/releases/v0.1.0.md`](docs/releases/v0.1.0.md) — release notes and checklist
+- [`CHANGELOG.md`](CHANGELOG.md) — release history
+- [`SECURITY.md`](SECURITY.md) — supported version and vulnerability reporting
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — development workflow and conventions
+- [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) — community expectations
 - [`AGENTS.md`](AGENTS.md) — contributor and agent guide for this repository
 
 ## Security
 
-- All application data is scoped to the authenticated user.
+- All application data is scoped to the authenticated user; another user's row
+  returns 404, and unknown API routes return JSON rather than the SPA.
 - Never commit `.env` files, database files, tokens or provider credentials.
 - Production requires `DATABASE_URL`, `QUEUE_URL`, `JWT_SECRET` and `HOST` to be
   supplied explicitly; there are no production defaults for secrets.
   `JWT_SECRET` must be base64, because Loco decodes it before signing.
 - Public registration is disabled by default; the first account is created with
-  `admin:create`.
-- AI and notification integrations are optional and must fail gracefully.
+  `admin:create`. Authentication endpoints have in-process rate limits keyed by
+  account and client address (see `REMOTE_IP_SOURCE` in `.env.example`).
+- Every response carries a strict Content-Security-Policy and supporting
+  security headers. `/api/*`, monitoring paths and HTML documents are sent with
+  `Cache-Control: no-store`; the service worker never caches them either.
+- AI and notification integrations are optional, fail gracefully, and are not
+  needed for core features.
 - Personal OpenRouter keys are encrypted at rest with `AI_ENCRYPTION_KEY` and
   are never returned by the API, written to logs or stored in the browser.
-  Without `AI_ENCRYPTION_KEY`, only the server key can be used.
+  Without `AI_ENCRYPTION_KEY`, only the server key can be used. The OpenRouter
+  client disables redirects so a key cannot be sent to a redirect target.
 - Telegram bot tokens and Discord webhook URLs are sealed with
   `NOTIFICATION_ENCRYPTION_KEY` (or `AI_ENCRYPTION_KEY`), are write-only in the
   API and are never logged. Outbound hosts are restricted to the official
   provider endpoints.
+
+### Public exposure and residual risks
+
+If the service is reachable from the Internet (public `HOST`, forwarded port),
+terminate TLS at a trusted reverse proxy, restrict the application port to that
+proxy, set `HOST` to the public HTTPS origin, and add edge rate limiting. BrainDrop
+does **not** send HSTS — configure `Strict-Transport-Security` at the proxy.
+`REMOTE_IP_SOURCE` defaults to `ConnectInfo`; use `RightmostXForwardedFor` only
+behind one trusted proxy that overwrites `X-Forwarded-For`, never on a header a
+client can supply. See [`SECURITY.md`](SECURITY.md) and the
+[deployment security checklist](docs/DEPLOYMENT.md#10-security-checklist).
+
+Known residual risks and compensating controls:
+
+| Residual risk | Compensating control |
+|---|---|
+| The generated SPA stores its JWT in `localStorage`; any XSS can read it. | Strict CSP with no inline/eval scripts, `no-store` on private responses, a service worker that bypasses API paths, no secrets in responses or logs, and `JWT_SECRET` rotation to invalidate sessions if needed. |
+| Rate-limit counters are in memory and reset on restart. | Edge rate limiting at the reverse proxy; one application replica only. |
+| No HSTS from the application. | HSTS configured at the TLS-terminating proxy or load balancer. |
+| Notification delivery is at-least-once, not exactly-once. | Durable delivery rows and deduplication keys; duplicate provider delivery remains possible after an ambiguous failure. |
+| SQLite is single-writer and has no horizontal scaling. | Single-replica deployment with online backup/restore scripts. |
 
 ## License
 

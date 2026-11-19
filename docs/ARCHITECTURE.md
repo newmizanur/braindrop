@@ -6,8 +6,9 @@ update it when a milestone changes the design.
 
 ## 1. Status
 
-Milestones 1 (bootstrap), 2 (auth and shell hardening), 3 (items and settings)
-and 4 (AI capture) are complete:
+Milestones 1 (bootstrap), 2 (auth and shell hardening), 3 (items and settings),
+4 (AI capture), 5 (notifications) and 6 (deployment and distribution) are
+complete. Task 007 release preparation is implemented and awaiting final CI:
 
 - Loco application scaffold, generated with SQLite, a SQLite-backed queue and a
   client-side React SPA.
@@ -20,18 +21,29 @@ and 4 (AI capture) are complete:
 - Unknown `/api/*` routes are answered by a JSON 404 catch-all, so a mistyped API
   path never falls through to the SPA.
 - Authentication is production-shaped: registration and email verification are
-  configurable, `admin:create` provisions the first account, and the SPA
-  validates its token against `/api/auth/current`.
+  configurable, `admin:create` provisions the first account, the SPA validates
+  its token against `/api/auth/current`, and auth endpoints have in-process rate
+  limits.
 - The SPA is an installable PWA whose service worker caches only the app shell.
 - Items, settings, statistics and optional AI-assisted capture are implemented.
   AI suggestions are reviewed in the quick-capture dialog and are only persisted
   when the user saves them.
+- Telegram/Discord notifications use durable delivery rows, deduplication and
+  five scheduled scans; external providers are mocked in tests and CI.
+- Deployment artifacts include Docker Compose, six native targets, an SSH
+  release flow, and online SQLite backup/restore.
+- Task 007 adds explicit security headers, a no-store cache policy for private
+  responses, auth rate limits with a configurable trusted proxy source, a 1 MiB
+  body limit, input validation, disabled OpenRouter redirects, redacted
+  notification errors and hardened SSH staging. Release docs live in
+  `docs/releases/`.
 - `./scripts/ci.sh` runs the full Docker-based validation suite, including a
   production image build and Playwright smoke tests. The AI Playwright flow uses
   a local mock provider, so CI needs no real credentials.
 
-Notifications, full deployment artifacts and release hardening are **not
-implemented yet**. See `docs/PROGRESS.md` and `docs/tasks/`.
+Notifications, deployment artifacts and the v0.1.0 documentation are therefore
+implemented; the final `./scripts/ci.sh` run, tagging, publishing and deployment
+are pending explicit authorization. See `docs/PROGRESS.md` and `docs/tasks/`.
 
 ## 2. Design principles
 
@@ -90,8 +102,11 @@ on the SQLite queue.
 
 ```text
 src/
-  app.rs                    Hooks: routes, workers, tasks, seeds
+  app.rs                    Hooks: routes, middleware, workers, tasks, seeds
   auth_policy.rs            Typed registration / verification policy from config
+  auth_rate_limit.rs        In-process limits for authentication endpoints
+  middleware/
+    cache_control.rs        no-store for API, monitoring and HTML responses
   ai/                       optional OpenRouter client, prompt, validation, credentials
     client.rs               provider trait + reqwest chat-completions client
     config.rs               typed `settings.ai` access and bounds
@@ -128,13 +143,13 @@ frontend/
     auth/                   login, register, token storage, route guard
     api/                    typed fetch client and query hooks
     bindings/               generated TypeScript DTOs
-  public/                   manifest, icons, service worker
+  public/                   manifest, icons, service worker, external color-scheme script
   e2e/                      Playwright smoke tests
 docker/
   ci/                       Dockerfiles for the Rust, frontend and Playwright stages
 scripts/                    ci.sh (single CI entry point) and helper scripts
 tests/                      Loco request/model/task tests
-docs/                       specification, architecture, progress, deployment, tasks
+docs/                       specification, architecture, progress, deployment, tasks, releases
 ```
 
 ## 5. Data model
@@ -276,6 +291,8 @@ Conventions:
 - Validation is declared on DTOs/models and returns 400/422 with a consistent
   error body. Invalid enum values return 422.
 - Not found and not-owned return 404; unauthenticated returns 401.
+- Generated auth endpoints return 429 with code `rate_limited` when the
+  in-process account/client budget is exhausted.
 - No entity is serialized directly; handlers render DTOs.
 - `POST /api/items` accepts one item or `{ "items": [...] }` and inserts the
   batch in a single transaction. `GET /api/items` filters by `q`, `type`,
@@ -317,7 +334,9 @@ Milestone 4 implements a small server-side client behind an `AiProvider` trait:
 - Config: `AI_ENABLED`, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`,
   `OPENROUTER_BASE_URL`, `AI_TIMEOUT_SECONDS`, `AI_MAX_INPUT_CHARS`,
   `AI_RATE_LIMIT_PER_MINUTE` and `AI_ENCRYPTION_KEY`.
-- `reqwest` with rustls, connect/request timeouts and a bounded response body.
+- `reqwest` with rustls, connect/request timeouts, a bounded response body and
+  redirects disabled, so a secret-bearing request cannot be redirected to
+  another host by the configured base URL.
 - Structured JSON output (`json_schema`) when the model supports it. If a model
   rejects `response_format`, the client retries once without it; the system
   prompt still requires JSON.
@@ -479,6 +498,7 @@ handlers.
 | `QUEUE_URL` | SQLite queue database | production |
 | `JWT_SECRET` | JWT signing key | production |
 | `HOST` | public base URL | production |
+| `REMOTE_IP_SOURCE` | client-address source for auth rate limits: `ConnectInfo` (default) or `RightmostXForwardedFor` behind one trusted proxy | no |
 | `ALLOW_REGISTRATION` | enable public registration | no (default false in milestone 2) |
 | `REQUIRE_EMAIL_VERIFICATION` | require verified email to log in | no |
 | `AI_ENABLED` | server-wide AI switch | no (default false) |
@@ -506,14 +526,38 @@ and refuses to boot without them.
 
 - Authenticated user ownership on every data query.
 - 404 (not 403) for another user's resources.
-- No secrets in API responses, logs or error messages.
+- No secrets in API responses, logs or error messages; SQLite error strings from
+  notification operations are redacted before they reach a response or a
+  delivery record.
 - Authenticated encryption for provider credentials.
-- SSRF-resistant outbound destinations.
-- Input limits on AI text, titles, tags and search.
-- CSRF is not a concern for bearer-token API calls, but the frontend stores the
-  JWT in `localStorage`; XSS prevention and a strict CSP are part of hardening.
-- Service worker must not cache `/api/*` or auth credentials.
+- SSRF-resistant outbound destinations; the OpenRouter client also disables
+  redirects because its base URL is operator configuration that may carry a key.
+- Input limits on AI text, titles, tags and search; a 1 MiB request-body limit,
+  and validation of registration, password-reset and reset-token fields.
+- Auth endpoints are rate-limited per account/token and per client address.
+  Counters live in Loco's in-process cache and reset on restart, so edge limits
+  are recommended for public exposure. `REMOTE_IP_SOURCE` controls the client
+  address: `ConnectInfo` (socket peer) by default, or `RightmostXForwardedFor`
+  only behind one trusted proxy that overwrites `X-Forwarded-For`.
+- Response headers are explicit in all environments: a strict CSP
+  (`script-src 'self'`, `script-src-attr 'none'`, no inline scripts or
+  `unsafe-eval`, `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`,
+  `form-action 'self'`; `'unsafe-inline'` is limited to styles), plus
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: no-referrer`, `Permissions-Policy`,
+  `Cross-Origin-Opener-Policy: same-origin` and
+  `Cross-Origin-Resource-Policy: same-origin`. HSTS is deliberately **not** set
+  by the app, which cannot see TLS; the reverse proxy must set it.
+- `src/middleware/cache_control.rs` adds `Cache-Control: no-store` to `/api/*`,
+  `/_*` and HTML documents. Hashed static assets stay cacheable, and the service
+  worker bypasses API and monitoring paths.
+- CSRF is not a concern for bearer-token API calls, but the generated frontend
+  still stores the JWT in `localStorage`. The strict CSP and no-store policy are
+  compensating controls, not a cure: any XSS is a potential token compromise.
 - Dependencies are kept current; CI runs `cargo clippy` and frontend lint/tests.
+  Third-party GitHub Actions are pinned to commit SHAs. See
+  [`SECURITY.md`](../SECURITY.md) for the supported version and disclosure
+  process.
 
 ## 14. Testing
 
@@ -587,6 +631,9 @@ Milestone 6 added:
   `dist/braindrop-<platform>/` plus `.tar.gz` and SHA-256 sidecars.
 - A documented `Makefile` and `scripts/deploy.sh` that uses only `ssh`/`scp`,
   stages uploads, activates releases atomically and keeps `shared/.env` and data.
+- Task 007 hardened that staging path: uploads use an unpredictable `mktemp`
+  file under the SSH user's home with `umask 077`, extraction goes to a `0700`
+  staging directory, and a cleanup trap removes both on success or failure.
 - `scripts/deploy-init-alpine.sh` (OpenRC) and
   `scripts/deploy-init-ubuntu.sh` (systemd), both with an unprivileged user.
 - `scripts/backup.sh` / `scripts/restore.sh` using SQLite's online backup API,
@@ -613,7 +660,9 @@ and no release is published.
 | **Base64 `JWT_SECRET`** | Loco base64-decodes the secret before signing. Production config and `.env.example` document this, and signing failures return `500` instead of a misleading `401`. |
 | **SQLite WAL** | Loco 1.3 enables WAL automatically for file-backed SQLite connections; no custom PRAGMA code is needed. |
 | **Single application replica** | SQLite and the SQLite queue are single-writer; horizontal scaling is out of scope. |
-| **JWT in localStorage** | Generated Loco frontend behavior. CSP/XSS review and optional cookie mode remain release hardening (milestone 7). |
+| **JWT in localStorage** | Generated Loco frontend behavior. Task 007 added a strict CSP, no-store private responses and an external pre-paint script; XSS-based token theft remains a documented residual risk, and cookie mode is still optional future work. |
+| **Explicit headers, no HSTS** | Loco presets can clear browser storage or fight the PWA's static caching. The app sets a reviewed header set; HSTS belongs at the TLS-terminating proxy, which the app cannot see. |
+| **In-process auth rate limits** | One replica by design, so a cache-backed fixed window is enough. Counters reset on restart; public deployments should also limit at the edge. |
 | **Server key plus optional BYOK** | A server key keeps AI usable without user setup; a personal key lets users pay for their own usage. Both resolve through one typed path, and neither is ever returned by the API. |
 | **AES-256-GCM for personal keys** | Authenticated encryption with an externally configured key. The envelope is versioned (`v1:`) so a future key rotation can be handled explicitly. |
 | **Suggestions are never auto-saved** | The review step is the product contract: AI output is untrusted data, and the user chooses what becomes an item. |

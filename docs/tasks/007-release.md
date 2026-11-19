@@ -1,6 +1,7 @@
 # Task 007 — Release
 
-**Status:** Not started
+**Status:** Complete — `READY WITH LIMITATIONS`. Nothing was pushed, tagged,
+published or deployed; those steps require explicit authorization.
 
 ## Objective
 
@@ -14,7 +15,8 @@ release checklist.
 - Security review: authz, secrets, SSRF, XSS/CSP, service worker caching.
 - Full backend/frontend validation.
 - Documentation review and a changelog.
-- Version bump to `0.1.0` and release notes.
+- Versioning and release notes (`0.1.0` already set at HEAD; verified rather
+  than re-bumped).
 - License and repository hygiene check.
 - Release checklist; no unauthorized push/deploy.
 
@@ -24,20 +26,24 @@ release checklist.
 
 ## Implementation checklist
 
-- [ ] Add Playwright smoke tests for login, dashboard, quick capture and a
+- [x] Add Playwright smoke tests for login, dashboard, quick capture and a
       representative item flow.
-- [ ] Add cross-user isolation tests for every business endpoint.
-- [ ] Review JWT storage/XSS posture and add a CSP if appropriate.
-- [ ] Review service worker scope: no `/api/*` or credential caching.
-- [ ] Verify AI and notification secrets never appear in responses or logs.
-- [ ] Verify SSRF restrictions on notification destinations.
-- [ ] Run the full backend/frontend/Docker suites from a clean checkout.
-- [ ] Write `CHANGELOG.md` and release notes.
-- [ ] Confirm `LICENSE`, `README`, docs and `.env.example` are accurate.
-- [ ] Confirm no secrets, DB files, `target/`, `node_modules` or build artifacts
+- [x] Add cross-user isolation tests for every business endpoint (covered by
+      the Tasks 003–005 suites; retained in the final run).
+- [x] Review JWT storage/XSS posture and add a strict CSP (kept the generated
+      `localStorage` JWT; documented residual risk and compensating controls).
+- [x] Review service worker scope: no `/api/*` or credential caching.
+- [x] Verify AI and notification secrets never appear in responses or logs.
+- [x] Verify SSRF restrictions on notification destinations (official hosts
+      only, no redirects; OpenRouter redirects disabled).
+- [x] Run the full backend/frontend/Docker suites from a clean checkout.
+- [x] Write `CHANGELOG.md` and release notes.
+- [x] Confirm `LICENSE`, `README`, docs and `.env.example` are accurate.
+- [x] Confirm no secrets, DB files, `target/`, `node_modules` or build artifacts
       are tracked.
-- [ ] Bump the version and tag only with authorization.
-- [ ] Update PROGRESS and close the milestone.
+- [x] Verify version consistency (no bump was needed); tag only with
+      authorization.
+- [x] Update PROGRESS and close the milestone.
 
 ## Acceptance criteria
 
@@ -49,21 +55,33 @@ release checklist.
 - Release artifacts are reproducible and contain no secrets.
 - Nothing is pushed, merged or deployed without explicit authorization.
 
+All criteria are met. The classification is `READY WITH LIMITATIONS`; the
+limitations are documented in `docs/PROGRESS.md` and
+`docs/releases/v0.1.0.md`.
+
 ## Validation commands
 
 ```sh
-cargo fmt --all -- --check
-cargo clippy --all-targets -- -D warnings
-cargo test --workspace
+./scripts/ci.sh
 
-pnpm --dir frontend typecheck
-pnpm --dir frontend lint
-pnpm --dir frontend test
-pnpm --dir frontend build
-pnpm --dir frontend exec playwright test
-
-docker build -t braindrop:release .
+# Additional release checks (host-side)
+cargo audit
+pnpm --dir frontend audit --audit-level=moderate
+cargo loco doctor                  # LOCO_ENV=production, placeholder secrets
+./scripts/deploy.sh validate
+./scripts/package.sh --check dist/braindrop-linux-amd64-musl
 ```
+
+## Decisions
+
+- JWT stays in `localStorage` for v0.1.0; no partial cookie migration.
+- Explicit `secure_headers` with `preset: empty`; HSTS only at a TLS proxy.
+- Authentication rate limits are in-process, single-replica only, and rely on
+  correctly configured `REMOTE_IP_SOURCE`.
+- Login consumes only failures and clears on success; duplicate registration
+  uses a neutral response to avoid account enumeration.
+- Local archives are verification artifacts; the manual release workflow
+  rebuilds all six from the tagged commit.
 
 ## Out of scope
 

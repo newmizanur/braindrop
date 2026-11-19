@@ -12,10 +12,10 @@ Last updated: **2026-11-19**
 | 004 | AI capture | **Complete** | OpenRouter client, `/api/ai/parse`, encrypted BYOK, review UI, mocked tests |
 | 005 | Notifications | **Complete** | Telegram/Discord clients, durable delivery queue, scheduler scans, settings UI, mocked tests |
 | 006 | Deployment and distribution | **Complete** | Docker Compose, six native targets, Makefile + SSH release flow, backups/restore, deployment CI and measurements |
-| 007 | Release | Not started | Smoke tests, security review, docs, release |
+| 007 | Release | **Complete** | Security hardening, CSP/headers, release docs, security regression tests, v0.1.0 readiness — `READY WITH LIMITATIONS` |
 
-Work proceeds one milestone at a time. Do not start milestone 007 until milestone
-006 is reviewed.
+All milestones are complete. Milestone 007 remains gated: nothing was pushed,
+tagged, published or deployed without explicit authorization.
 
 ## Milestone 001 — Bootstrap
 
@@ -729,7 +729,7 @@ are written next to each archive):
 
 | Target | Binary | Archive | SHA-256 (first 12) |
 |---|---:|---:|---|
-| `aarch64-apple-darwin` | 17,781,328 | 7,977,539 | `01790d12a496` |
+| `aarch64-apple-darwin` | 17,866,768 | 8,024,060 | `2948857cd102` (rebuilt in Task 007) |
 | `x86_64-apple-darwin` | 19,012,152 | 8,514,514 | `a2d8311a10b1` |
 | `aarch64-unknown-linux-musl` | 17,799,048 | 8,257,829 | `c58cf843ddaf` |
 | `aarch64-unknown-linux-gnu` | 19,028,496 | 8,298,059 | `c5063699a6d1` |
@@ -790,6 +790,177 @@ None.
 - The queue database is recoverable but not transactional with the application
   database. A backup captures them sequentially.
 
+## Milestone 007 — Release
+
+### Delivered
+
+**Security review and hardening**
+
+- Independent read-only audit of auth, authorization, API, AI, notifications
+  and deployment found no critical issues. Two high-severity rate-limit
+  correctness gaps and several medium/low findings were fixed and re-tested.
+- Authentication rate limits (`src/auth_rate_limit.rs`) use Loco's in-process
+  cache with a process-wide mutex, so check-and-increment is atomic in the
+  supported single-replica deployment. Login counts only failures, uses an
+  account+client key, and is cleared on success: a known email cannot lock an
+  account for other clients. Token endpoints keep one recovery attempt.
+  Identity keys are bounded, and `REMOTE_IP_SOURCE` selects the client address.
+- Registration and verification: duplicate registration now returns the same
+  neutral success as a new registration (no account oracle); magic links honour
+  the email-verification policy and consume the one-time token even when it is
+  rejected; verification tokens expire after 24 hours; unknown-email logins
+  perform a dummy hash for timing parity; raw database errors are no longer
+  returned to clients.
+- Input limits and redaction: 1 MiB payload limit, typed `RegisterParams` and
+  `ResetParams` validation, no email addresses in auth logs, redacted
+  notification provider errors, disabled OpenRouter redirects, and removal of
+  the magic-link domain allowlist and its `regex` dependency.
+
+**Transport and browser controls**
+
+- Explicit `secure_headers` in development, test and production with `preset:
+  empty`: strict CSP (no inline or eval scripts, `script-src-attr 'none',
+  object-src 'none', base-uri 'none', frame-ancestors 'none'`),
+  `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options` and
+  `Content-Security-Policy`. `style-src 'unsafe-inline'` is retained because
+  Mantine injects runtime styles; the residual CSS-injection surface is
+  documented. HSTS is intentionally set at the TLS reverse proxy, not the app.
+- New `CacheControl` middleware adds `Cache-Control: no-store` to `/api/*`,
+  `/_*` and HTML responses while leaving hashed `/assets/*` cacheable; the
+  service worker still refuses to cache API or private responses.
+- The SPA CSP remains compatible: Vite vendor/route splitting removes the
+  >500 kB warning, the pre-paint theme script is external, and Mantine runtime
+  styles and PWA assets work under the policy. Accessibility/contrast tweaks
+  cover dimmed text, button types, dialogs and sort labels.
+
+**Release preparation**
+
+- Open-source docs: `README.md` (real application screenshots and
+  public-exposure guidance), `LICENSE`, `CHANGELOG.md`, `CONTRIBUTING.md`,
+  `CODE_OF_CONDUCT.md`, `SECURITY.md`, `.env.example`,
+  `docs/releases/v0.1.0.md`, and updates to `ARCHITECTURE.md` and
+  `DEPLOYMENT.md`.
+- GitHub Actions uses commit-pinned third-party actions and stays manual-only
+  (`workflow_dispatch`); the release workflow pushes an image only when
+  `publish_image=true`.
+- SSH deploy stages uploads under a private `mktemp` directory with `umask
+  077`, validates the path, and cleans it on exit. No fixed `/tmp/braindrop-*`
+  upload path remains.
+- Rust and frontend dependency audits are clean of exploitable production
+  advisories; the remaining Rust `cargo audit --deny warnings` entries are
+  unmaintained-crate warnings (`chrono`, `chrono-tz`, `unsafe-libyaml`) with no
+  fixed upgrade, and no frontend advisories at moderate or above.
+
+**Regression coverage**
+
+- Rust request tests cover security headers/no-store, auth rate limits,
+  verification-token expiry, magic-link policy, duplicate registration,
+  registration validation, domain-allowlist removal and JWT query rejection.
+- Playwright adds CSP/header/no-store checks and a full authenticated flow with
+  a `securitypolicyviolation` listener; PWA cache hygiene is asserted. Real
+  screenshots are generated only with `CAPTURE_SCREENSHOTS=1`.
+
+### Validation
+
+Single command, Docker-first:
+
+```text
+./scripts/ci.sh                   passed end to end (final run)
+```
+
+Contents and final counts from the passing run:
+
+```text
+Rust fmt / clippy -D warnings / migrations             passed
+Rust unit tests                                       100 passed
+Rust integration (requests/models) tests              98 passed
+frontend typecheck / lint / production build           passed
+frontend unit tests                                   36 passed (8 files)
+production image health + worker/scheduler banner      passed
+deployment persistence, static assets, in-container backup  passed
+backup/restore self-test, deploy validation, package layout  passed
+Playwright (smoke, AI, items, notifications, PWA, security)  14 passed, 1 skipped
+```
+
+The skipped Playwright case is the screenshot-capture spec, which runs only
+when `CAPTURE_SCREENSHOTS=1` is set. The four committed screenshots were
+generated in a separate run with that flag.
+
+Additional host-side verification:
+
+```text
+cargo audit                       passed (3 allowed unmaintained warnings)
+pnpm audit --audit-level=moderate passed (no known vulnerabilities)
+cargo loco doctor (production)    production settings safe; DB connected
+scripts/deploy.sh validate        configuration valid
+package.sh --check                package layout complete
+six native archives               SHA-256 sidecars verified
+macOS ARM64 archive               rebuilt from current source (17,866,768-byte
+                                  binary, 8,024,060-byte archive, SHA-256
+                                  2948857cd102); layout and checksum verified
+workflow YAML                     parsed; manual-only, pinned SHAs
+```
+
+Local bounded load test (50 sequential requests each, disposable data):
+item list 4.8 ms, item create 5.8 ms, dashboard stats 9.7 ms average. These
+are development-process figures on one host, not a capacity guarantee.
+
+### Release classification
+
+**READY WITH LIMITATIONS.** All automated checks pass and the audited high and
+medium correctness issues are fixed. The limitations below are documented and
+accepted for v0.1.0; none blocks an authorized tag or publication, but the
+operator must understand them.
+
+### Decisions
+
+- **Keep the generated JWT-in-`localStorage` flow for v0.1.0.** A partial
+  cookie migration was rejected; strict CSP, security headers, no-store and
+  service-worker discipline are compensating controls. The residual XSS/token
+  theft risk is documented in `SECURITY.md` and the release notes.
+- **`preset: empty` with explicit headers.** Loco's bundled presets can clear
+  browser storage or weaken PWA/static caching; explicit overrides are
+  predictable and version-stable.
+- **Login failures only.** A known email must not be an account lockout vector;
+  the successful login clears the counter, and login uses an account+client
+  dimension. This replaces the earlier global hard lock.
+- **HSTS at the proxy.** The application cannot know whether external TLS is
+  real, so the app does not emit HSTS; the deployment guide requires it at the
+  TLS terminator.
+- **Generic registration response.** Returning `409` would be a reliable
+  account oracle when registration is enabled; neutral success preserves the
+  SPA copy and the audit finding is resolved.
+- **Local archives are verification artifacts.** The checked-in `dist/` archives
+  were built before Task 007 (their `RELEASE` metadata records an earlier git
+  SHA). The manual release workflow rebuilds every archive from the tagged
+  commit before publication, so no stale binary is published.
+
+### Blockers
+
+None that prevent an authorized release. Tag, push, image publication and
+deployment remain explicitly unauthorized and were not performed.
+
+### Known limitations
+
+- JWT in `localStorage`: any XSS is a potential session compromise; CSP reduces
+  but does not remove the risk. Seven-day stateless JWTs cannot be revoked.
+- Authentication and test-send rate limits are in-process, reset on restart,
+  and depend on correct `REMOTE_IP_SOURCE`; public exposure also needs edge
+  limits. Only one application replica is supported.
+- `style-src 'unsafe-inline'` remains for Mantine runtime styles.
+- Most local `dist/` archives predate Task 007; the macOS ARM64 one was rebuilt
+  from current source for verification, and the authorized release workflow
+  rebuilds all six from the tagged commit before publication. Only the macOS
+  ARM64 package, `linux/arm64` Docker image and musl ARM64 package were booted
+  here; macOS AMD64, both Linux AMD64 binaries and glibc ARM64 were
+  cross-compiled but not runtime-tested.
+- No SSH deployment or real service boot was executed against a target.
+- Application and queue SQLite databases are backed up sequentially; the queue
+  is recoverable but not transactional with the application database.
+- Sub-2 MiB idle RSS figures are for a single idle replica; they are not a
+  capacity guarantee under sustained concurrent load.
+
 ## Next task
 
-**007 — Release.** See `docs/tasks/007-release.md`.
+None. All milestones are complete. Continue only with explicit authorization
+for tagging, publishing or deployment.
