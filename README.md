@@ -13,9 +13,9 @@ tasks, notes, ideas, reminders, search, statistics or settings.**
 
 ## Status
 
-**BrainDrop v0.1.0 source and tag are published.** Local validation passed and
-the authorized Fly.io and TierHive deployments are running. GHCR images and
-release assets are awaiting registry/account authentication. See
+**BrainDrop v0.1.0 is being published.** The source and tag are public, and the
+release assets are staged in a draft. The GHCR package still needs public
+visibility before Docker pulls will work. See
 [`docs/releases/v0.1.0.md`](docs/releases/v0.1.0.md) for release notes and
 [`docs/PROGRESS.md`](docs/PROGRESS.md) for validation status.
 
