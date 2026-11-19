@@ -80,7 +80,7 @@ function settings(
 function renderPage(data: SettingsResponse) {
   mocks.settings.data = data
   render(
-    <MantineProvider>
+    <MantineProvider env="test">
       <Settings />
     </MantineProvider>,
   )

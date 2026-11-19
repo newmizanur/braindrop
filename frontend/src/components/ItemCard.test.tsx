@@ -30,7 +30,7 @@ function renderCard(overrides: Partial<ItemResponse> = {}) {
     onDelete: vi.fn(),
   }
   render(
-    <MantineProvider>
+    <MantineProvider env="test">
       <ItemCard item={{ ...item, ...overrides }} {...handlers} />
     </MantineProvider>,
   )

@@ -32,7 +32,7 @@ function ReviewHarness({
   const [drafts, setDrafts] = useState(initial)
 
   return (
-    <MantineProvider>
+    <MantineProvider env="test">
       <AiSuggestionReview
         drafts={drafts}
         onChange={(next) => {

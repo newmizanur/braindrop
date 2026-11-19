@@ -25,18 +25,27 @@ test.describe('PWA shell', () => {
     })
     expect(registered).toBe(true)
 
-    const cachedPaths = await page.evaluate(async () => {
+    const cacheContents = await page.evaluate(async () => {
+      const names = await caches.keys()
       const paths: string[] = []
-      for (const name of await caches.keys()) {
+      for (const name of names) {
         const cache = await caches.open(name)
         for (const request of await cache.keys()) {
           paths.push(new URL(request.url).pathname)
         }
       }
-      return paths
+      return { names, paths }
     })
 
-    expect(cachedPaths.length).toBeGreaterThan(0)
-    expect(cachedPaths.filter((path) => path.startsWith('/api/'))).toEqual([])
+    expect(cacheContents.names.length).toBeGreaterThan(0)
+    expect(
+      cacheContents.names.every((name) => name.startsWith('braindrop-shell-')),
+    ).toBe(true)
+    expect(cacheContents.paths.length).toBeGreaterThan(0)
+    expect(
+      cacheContents.paths.filter(
+        (path) => path.startsWith('/api/') || path === '/api' || path.startsWith('/_'),
+      ),
+    ).toEqual([])
   })
 })

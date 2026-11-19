@@ -79,7 +79,7 @@ function settings(overrides: Partial<SettingsResponse['notifications']> = {}) {
 function renderPage(data: SettingsResponse) {
   mocks.settings.data = data
   render(
-    <MantineProvider>
+    <MantineProvider env="test">
       <Integrations />
     </MantineProvider>,
   )
