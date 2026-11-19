@@ -165,9 +165,10 @@ were preserved.
 
 Remote Fly config/API validation, volume ownership and persistence, Fly startup,
 scheduled delivery after cold start, TierHive inspection/deployment, 256 MiB
-and sustained 128 MiB capacity, native package rebuilding, final checksums and
-public demo feasibility are not fully validated here. A public demo URL is not
-recommended or included.
+and sustained 128 MiB capacity, native service execution on Alpine, Ubuntu and
+macOS, and public demo operation are not fully validated here. Native packages
+were rebuilt and checksummed, but these checks do not replace on-target runtime
+verification. A public demo URL is not recommended or included.
 
 **Local deployment preparation: READY FOR AUTHORIZED REMOTE VALIDATION.**
 **Task 010 overall: INCOMPLETE WITH REMOTE VALIDATION BLOCKED PENDING APPROVAL.**
