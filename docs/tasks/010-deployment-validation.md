@@ -2,9 +2,11 @@
 
 **Date:** 2026-11-19  
 **Baseline:** Task 009 commit `103c591969b52f93c8a5254f50edfc5ca23105e6`  
-**Scope:** Fly.io deployment preparation, TierHive deployment readiness and
-benchmark documentation. No remote host or Fly resource was contacted or
-changed, no real secret was configured, and no public demo URL was published.
+**Scope:** Local Task 010 preparation plus authorized TierHive inspection and
+Fly.io deployment validation. No repository contains remote addresses, SSH
+credentials, encryption keys or administrator passwords. A publicly reachable
+Fly deployment exists, but no demo URL was added to README and no credentials
+were published.
 
 ## Implementation summary
 
@@ -24,56 +26,88 @@ changed, no real secret was configured, and no public demo URL was published.
   results and clearly separating the new local constrained-container sample.
 - Added concise README performance notes and links to benchmark and deployment
   records; updated architecture, progress and `.env.example` guidance.
+- Enabled existing per-user AI/BYOK in Fly config (`AI_ENABLED=true`); no
+  shared OpenRouter API key is configured.
 
 ## Fly.io configuration and validation
 
-`fly.toml` uses the checked-in `Dockerfile`, whose entrypoint and command run
-`braindrop-cli start --all` as uid 10001. Existing config uses 5150, the
-`/_health` endpoint, `FlyClientIp` for client IP trust behind Fly Proxy, and
-SQLite app/queue URLs beneath `/data`. Demo autostop uses `stop` / autostart /
-zero minimum running machines. Fly's proxy checks excess capacity every few
-minutes; a 15-minute stop interval is not configurable. Always-on settings are
-documented for scheduled production use.
+`fly.toml` uses the checked-in production `Dockerfile`, which starts
+`braindrop-cli start --all` as uid 10001. The deployed config uses port 5150,
+`/_health`, `FlyClientIp`, both SQLite files under `/data`, and the requested
+auto-stop/autostart/zero-minimum demo settings. `AI_ENABLED=true` enables the
+existing personal-key BYOK path; there is no shared OpenRouter key. Strict Fly
+configuration validation passed directly and during deployment.
 
-The file parsed with Python `tomllib`. Fly CLI `config validate --strict` and
-`config show --local` could not run because flyctl requires an authenticated
-access token for validation in this environment. No login or Fly API action was
-attempted. Remote mount ownership, startup, machine count, health routing,
-volume persistence, stop/start and upgrade behavior are **UNTESTED** pending
-authorization. Dockerfile's `/data` ownership is uid 10001; the Fly mount's
-effective ownership must be confirmed on a real machine.
+Authorized provisioning created the app in the existing personal organization
+and one encrypted 1 GiB volume in `sin`. Fresh JWT and AI encryption secrets
+were generated using OpenSSL and piped directly to `fly secrets import`; their
+values were neither printed nor saved. Fly built and deployed the production
+image (reported size 37 MB). Exactly one machine is present: shared-cpu-1x,
+one CPU, 256 MiB, attached to the volume, with one passing health check. The
+mounted `/data` was owned by uid 10001/gid 999, mode 755. The app process ran
+as uid 10001.
 
-Fly pricing documentation was checked 2026-11-19. The published lowest-region
-256 MiB shared-cpu-1x reference is $2.19 per 30 days; Singapore prices vary and
-the exact 256 MiB quote should be checked in Fly's calculator. A 1 GiB volume
-reference is $0.15/month, Asia-Pacific egress $0.04/GB and snapshots $0.08 per
-stored GB-month after the first 10 GB free. This is not a fixed total estimate.
-See [Fly pricing](https://fly.io/docs/about/pricing/) and [volume storage](https://fly.io/volumes/).
+External HTTPS `/_health` and `/` returned 200. A valid-shaped registration
+probe returned 403 `registration_disabled`. An explicit machine restart passed
+health. Both SQLite databases remained present and passed `PRAGMA
+integrity_check` after restart. After an authorized explicit stop, a health
+request triggered autostart and returned 200 in 2.25 seconds. This validates
+cold-start, not actual idle-stop timing; Fly native idle detection is enabled,
+and its interval is not configurable to exactly 15 minutes. Administrator authentication, item create/read persistence, active resource
+use and notification delivery remain untested because the initial administrator
+identity is awaiting operator selection. Backup and restore passed against
+disposable copies of the two mounted SQLite databases (4.3 KiB archive); this
+did not include pending notifications or live delivery-boundary recovery.
+
+Pricing was checked against official Fly documentation on 2026-11-19. The
+published 256 MiB shared-cpu-1x baseline is $2.19 per 30 days in the cheapest
+regions; the Singapore 1 GiB example is $8.50 per 30 days. The readable docs
+do not expose a Singapore 256 MiB quote, so approximately $2.80/month for
+continuous compute is an estimate inferred from regional price differences,
+not a quoted rate. The 1 GiB volume is $0.15/month, Asia-Pacific egress is
+$0.04/GB, and snapshot storage is $0.08/GB-month after the first 10 GB free.
+Autostop reduces compute while stopped, but rootfs and volume charges continue.
+The continuous-run budget is about $2.95/month plus egress/snapshots; actual
+costs vary. Sources: [Fly pricing](https://docs.fly.io/about/pricing/) and
+[Fly volumes](https://fly.io/volumes/).
 
 ## Make targets
 
-`make help` lists all six Fly targets. `make -n fly-init` and
-`make -n fly-deploy` rendered expected commands. flyctl v0.5.13 help confirmed
-the used `volumes create`, `machine list --quiet`, `deploy --ha=false`,
-`scale memory`, `apps restart`, `logs` and `ssh console` command forms. The
-targets were **NOT run** against a Fly account. The documented Fly CLI install
-and `fly auth login` are prerequisites; provisioning may incur charges.
+`make help` lists all six Fly targets. Init and deploy ran against the
+authorized account. Initial init required an organization for noninteractive
+app creation; after the app was created in the existing personal org, rerunning
+the target preserved it and created the named volume. Deploy built the image,
+launched one machine, and applied the 256 MiB setting. Status, SSH, and restart
+were exercised; restart passed. No resources were destroyed.
 
 ## TierHive results
 
-**BLOCKED pending explicit authorization to connect.** The authorized access
-boundary requires prior approval before SSH to the supplied TierHive host. No
-connection was attempted. Alpine version, architecture, RAM/swap, disk,
-OpenRC/services/ports, TLS proxy, package availability, deployment, service
-startup, administrator flow, persistence, backups, restore, upgrade/rollback,
-and restart recovery remain **UNTESTED**. The host address and SSH port are not
-stored in this repository.
+Authorized inspection found Alpine 3.24.4, x86_64, 93.2 MiB RAM, 128 MiB swap,
+and a 953 MiB root filesystem. OpenRC was active; standard network, time and
+SSH services were present. No unrelated app service or local port conflict
+was found. `ca-certificates`, `openssl` and `sqlite` were installed. The
+x86_64 musl release was staged using the existing Makefile/native scripts. The
+remote production env file was created with mode 600, fresh persistent JWT/AI
+keys and registration disabled. OpenRC was registered and enabled at boot.
+
+Startup did not open port 5150: metadata checks showed no app process, listener
+or DB files, and deployment health failed. The automatic approval review
+rejected retrieval of service log contents because they could contain
+credentials or personal data; those logs were not read. The managed HAProxy
+panel/upstream port was inaccessible from the host, and DNS checks found no
+record for the user-provided domain. External HTTPS and proxy headers could
+not be verified. The release remains staged and OpenRC is configured, but
+service operation is **NOT VALIDATED**. No Nginx/Caddy/Certbot or unrelated
+services were installed or changed. Admin/API, backup/restore, upgrade/rollback,
+worker/scheduler runtime and resource checks are **BLOCKED** on startup and
+domain/proxy prerequisites.
 
 ## Benchmark and resource measurements
 
-The Task 009 pool results are preserved in `docs/BENCHMARK.md` without a
-pre/post claim. No TierHive or Fly server specifications or metrics are
-available because neither remote system was inspected or deployed.
+The Task 009 pool results remain unchanged in `docs/BENCHMARK.md`; remote
+measurements are separate. TierHive host metadata and Fly idle process RSS/database
+sizes are recorded, but neither host has a validated authenticated workload or
+peak resource sample.
 
 An additional local production Docker container was tested with a 128 MiB
 cgroup memory limit, one CPU, temporary SQLite files, Loco server/worker/
@@ -110,11 +144,12 @@ passed. The archive outputs remain ignored local build artifacts and were not
 committed or published.
 
 Native process RSS, container memory and total VPS memory are distinct measures.
-TierHive/Fly startup, idle/active/peak RSS, CPU, endpoint latency, database
-growth, and worker/scheduler overhead remain unmeasured. See the benchmark
-document for prior methodology and its limits (unrecorded host specs, no
-pre-remediation baseline, no separately instrumented pool acquisition latency,
-and no seeded queue jobs).
+Fly startup/health and idle process RSS plus database file sizes are measured;
+TierHive app RSS, both platforms’ active/peak usage, CPU, authenticated endpoint
+latency, sustained workload, database growth and background-job overhead remain
+unmeasured. See the benchmark document for the Task 009 methodology limits
+(no pre-remediation baseline, no separately instrumented pool acquisition
+latency, and no seeded queue jobs).
 
 ## Security and public demo assessment
 
@@ -137,19 +172,20 @@ was added.
 - Local TOML parse, Make help and target dry-runs: **PASS**.
 - `scripts/typescript-bindings.sh check`: included in CI and **PASS**.
 - Docker volume/non-root runtime: production CI passed; local constrained
-  container verified uid 10001 and bind mount ownership. Fly volume mount itself
-  remains **UNTESTED**.
+  container verified uid 10001 and bind mount ownership. Fly volume ownership
+  and process UID were also **PASS** on the remote machine.
 - `scripts/test-backup-restore.sh`: CI **PASS** for integrity, queue-first
-  ordering and linked pending delivery/job restore. It does not pause a live
-  scheduler at the precise enqueue boundary; no Fly snapshot/restore was run.
+  ordering and linked pending delivery/job restore. Fly backup/restore also
+  passed using disposable DB copies, but not pending notification boundary data.
 - `cargo audit --no-fetch`: no known vulnerabilities; three allowed upstream
   unmaintained warnings remain for chrono 0.4.45, chrono-tz 0.10.4 and
   unsafe-libyaml 0.2.11, with no fixed upgrade. Advisory DB refresh could not
   acquire the Cargo index lock; it used the locally installed advisory DB.
-- `pnpm audit --audit-level=moderate`: **BLOCKED** because npm registry access
-  failed DNS resolution (`ENOTFOUND`). No dependency changed in Task 010.
-- Fly CLI strict configuration validation: **BLOCKED** without an authenticated
-  Fly token. It was not possible to assert machine-volume behavior locally.
+- `pnpm audit --audit-level=moderate`: retried with project-pinned pnpm 10.12.4;
+  **BLOCKED** because npm registry DNS resolution failed (`ENOTFOUND`). No
+  dependency changed in Task 010.
+- Fly strict configuration validation: **PASS**. HTTPS, health, frontend, volume,
+  restart and explicit-stop cold-start checks passed as described above.
 - All six native target binaries rebuilt successfully after the documentation
   and configuration changes; all six archives were repackaged and checksum /
   layout-verified as recorded above.
@@ -163,13 +199,18 @@ were preserved.
 
 ## Remaining limitations and release readiness
 
-Remote Fly config/API validation, volume ownership and persistence, Fly startup,
-scheduled delivery after cold start, TierHive inspection/deployment, 256 MiB
-and sustained 128 MiB capacity, native service execution on Alpine, Ubuntu and
-macOS, and public demo operation are not fully validated here. Native packages
-were rebuilt and checksummed, but these checks do not replace on-target runtime
-verification. A public demo URL is not recommended or included.
+Fly HTTPS/health, volume, UID, restart, cold-start, and disposable-copy
+backup/restore passed. Authenticated item behavior, active workload, exact
+auto-stop delay, and notification delivery were not validated. TierHive Alpine inspection and
+staging passed, but application startup failed; service logs require explicit
+operator approval before their potentially sensitive contents can be read. The
+managed proxy backend/DNS issue also remains. pnpm audit could not reach npm.
+The public demo is not approved for publication and its URL is not in README.
+Native archives were previously checksum-verified; this turn changed no native
+runtime/package contents.
 
-**Local deployment preparation: READY FOR AUTHORIZED REMOTE VALIDATION.**
-**Task 010 overall: INCOMPLETE WITH REMOTE VALIDATION BLOCKED PENDING APPROVAL.**
-No code was pushed, tagged, published, deployed, or sent to GitHub Actions.
+**Fly deployment: RUNNING, PARTIALLY VALIDATED.**
+**TierHive deployment: BLOCKED AT STARTUP AND DNS/PROXY VALIDATION.**
+**Task 010: INCOMPLETE WITH REMOTE VALIDATION LIMITATIONS.**
+No pushes, tags, GitHub Actions, GitHub releases or public image publications
+were made.

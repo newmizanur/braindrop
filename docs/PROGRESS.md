@@ -15,12 +15,12 @@ Last updated: **2026-11-19**
 | 007 | Release | **Complete** | Security hardening, CSP/headers, release docs, security regression tests, v0.1.0 readiness — `READY WITH LIMITATIONS` |
 | 008 | Independent code review | **Complete** | Senior review recorded in `docs/tasks/008-code-review.md`; actionable findings assigned to Task 009 |
 | 009 | Review remediation | **Complete** | Security, SQLite, DTO, notification, deployment and cleanup findings remediated; final CI and six local packages verified — `READY WITH LIMITATIONS` |
-| 010 | Fly.io demo, TierHive deployment and benchmark documentation | **Local work complete; remote validation pending authorization** | Fly config/Make targets/docs are prepared; no TierHive connection or Fly provisioning/deployment was authorized. See `docs/tasks/010-deployment-validation.md`. |
+| 010 | Fly.io demo, TierHive deployment and benchmark documentation | **Partial: Fly running; TierHive blocked** | Fly machine/volume deployed and health, restart, cold-start and disposable backup checks passed. TierHive app startup and DNS/proxy verification remain blocked. See `docs/tasks/010-deployment-validation.md`. |
 
 Tasks 001–009 and their review remediation are complete. Task 010 local
-implementation is recorded; remote TierHive/Fly validation remains pending.
-Nothing was pushed, tagged, published or deployed without explicit
-authorization.
+implementation and partial remote validation are recorded. Fly.io is deployed
+under explicit authorization; TierHive app startup remains blocked. Nothing
+was pushed, tagged, published or sent to GitHub Actions.
 
 ## Milestone 001 — Bootstrap
 
@@ -956,7 +956,9 @@ deployment remain explicitly unauthorized and were not performed.
 - Task 009 rebuilt and packaged all six native targets from the final local
   source state and verified each SHA-256 sidecar. Native binaries were not
   runtime-tested on each target operating system/architecture.
-- No SSH deployment or real service boot was executed against a target.
+- TierHive's Alpine service is staged and enabled in OpenRC, but the first
+  application start did not pass health. Fly's production app starts and passes
+  health, but authenticated workload and sustained capacity are unverified.
 - Application and queue SQLite databases are backed up sequentially; queue-first
   ordering and recovery reduce inconsistency risk, but they are not an atomic
   cross-database snapshot. Stop the service for a quiesced backup.

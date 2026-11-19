@@ -19,6 +19,7 @@ kill_timeout = 30
   DB_MAX_CONNECTIONS = "4"
   ALLOW_REGISTRATION = "false"
   REMOTE_IP_SOURCE = "FlyClientIp"
+  AI_ENABLED = "true"
 
 [deploy]
   # A single attached SQLite volume cannot be shared by replacement machines.

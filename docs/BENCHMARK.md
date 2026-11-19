@@ -1,5 +1,49 @@
 # BrainDrop benchmark and resource notes
 
+## Remote deployment samples (2026-11-19)
+
+These observations are separate from the Task 009 local pool comparison below
+and are point-in-time checks, not capacity tests.
+
+### Fly.io demo machine
+
+- Source/config: Task 010 local revision with `AI_ENABLED=true` in `fly.toml`
+  (BYOK enabled, no shared OpenRouter key); production Docker image built by
+  Fly from the existing Dockerfile.
+- Region/shape: Singapore, one shared CPU, 256 MiB, one encrypted 1 GiB
+  volume. Image size reported by Fly: 37 MB.
+- Machine creation to healthy: about 19 seconds, based on Fly machine
+  timestamps. A forced stop followed by an HTTPS health request cold-started
+  successfully; the request returned 200 in 2.25 seconds.
+- Health and frontend root returned HTTP 200. Registration returned the
+  expected 403 `registration_disabled` response.
+- Idle process RSS sample: 23,244 kB for `braindrop-cli`, UID 10001. This is
+  process RSS, not machine/cgroup memory. No active authenticated workload was
+  run because the initial admin identity is awaiting operator selection.
+- App DB: 122,880 bytes; queue DB: 28,672 bytes after migrations. Both passed
+  SQLite `PRAGMA integrity_check` after restart/cold start. This validates
+  mount persistence. Online backup and restore scripts passed against
+  disposable copies (4.3 KiB archive); no user data or pending notification
+  jobs were included, so this does not validate delivery-boundary recovery.
+- CPU utilization, machine-level peak memory, authenticated endpoint latency,
+  sustained workload, queue throughput, and actual auto-stop idle duration
+  were not measured. Native Fly idle detection was verified by configuration;
+  auto-start was verified through an explicit stop/cold-start test.
+
+### TierHive Alpine VPS
+
+The host was inspected and packages were staged, but the application did not
+reach a listening state. No process RSS, startup time, authenticated API,
+active workload, or application DB measurement is available. The host had
+Alpine 3.24.4 on x86_64, 93.2 MiB total RAM and 128 MiB swap; after installing
+the required SQLite/TLS packages it had about 54.4 MiB available and 745.3 MiB
+disk available. This is an unusually constrained host; no capacity claim can
+be made without resolving startup and running a representative workload.
+
+The Task 009 local Docker samples (128/256 MiB limits) and historical pool
+benchmark below do not establish reliable production capacity under concurrent
+writes or background jobs.
+
 ## SQLite application pool comparison
 
 This is the Task 009 local synthetic comparison, preserved without alteration.
