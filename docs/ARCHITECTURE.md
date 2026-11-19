@@ -32,7 +32,10 @@ complete. Task 009 review remediation is implemented; see
 - Telegram/Discord notifications use durable delivery rows, deduplication and
   five scheduled scans; external providers are mocked in tests and CI.
 - Deployment artifacts include Docker Compose, six native targets, an SSH
-  release flow, and online SQLite backup/restore.
+  release flow, online SQLite backup/restore, and a Fly.io Docker profile. Fly's
+  demo profile may stop the single machine while idle; this pauses both the
+  queue worker and scheduler, so scheduled delivery has bounded recovery rather
+  than continuous-time guarantees. Always-on deployments must disable autostop.
 - Task 007 adds explicit security headers, a no-store cache policy for private
   responses, auth rate limits with a configurable trusted proxy source, a 1 MiB
   body limit, input validation, disabled OpenRouter redirects, redacted

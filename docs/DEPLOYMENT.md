@@ -1,16 +1,20 @@
 # BrainDrop Deployment
 
-BrainDrop ships as one process and one SQLite database. This document covers the
-three supported ways to run it in production:
+BrainDrop ships as one process with separate application and queue SQLite
+databases. This document covers
+four supported ways to run it:
 
 | Option | Best for | Runtime dependencies on the host |
 |---|---|---|
-| Docker Compose | Most self-hosted installs | Docker + Compose |
-| Native binary (Alpine / Ubuntu) | Small VPS, no container runtime | libc (glibc or musl), `sqlite3`, `curl` |
-| SSH deployment (`make deploy-*`) | Repeatable updates over SSH | `ssh`/`scp` on the workstation; no Docker, Rust, Node.js or `rsync` on the server |
+| Docker Compose | Always-on self-hosting | Docker + Compose |
+| Native Alpine / OpenRC | Lightweight Alpine VPS | musl binary, `sqlite`, `curl`; OpenRC |
+| Native Ubuntu / systemd | Conventional Ubuntu VPS | glibc binary, `sqlite3`, `curl`; systemd |
+| Fly.io | Managed Docker hosting or low-cost demo | `flyctl` on the workstation |
 
-All three run the same release binary, the same `config/production.yaml` and the
-same `frontend/dist`. There is no separate worker or scheduler container: Loco's
+All paths use the same app behavior, `config/production.yaml`, and
+`frontend/dist`. Native archives can be installed by hand or updated over SSH
+with `make deploy-*`; the workstation needs only `ssh` and `scp`. There is no
+separate worker or scheduler container: Loco's
 `start --all` runs the HTTP server, the SQLite queue worker and the scheduler in
 one process.
 
@@ -346,7 +350,158 @@ does not assume a container runtime, `systemd` or OpenRC until the init script
 is run, and it reports which service manager it found. No platform-specific
 hostname, key or capability is guessed: verify them on the target first.
 
-## 5. Configuration
+## 5. Fly.io Docker deployment
+
+The root [`fly.toml`](../fly.toml) builds the existing production `Dockerfile`,
+which runs Loco `start --all` as uid 10001. It configures one shared vCPU, 256
+MiB, Singapore (`sin`), HTTPS, a `/_health` HTTP check, SIGTERM with a 30-second
+shutdown window, and a 1 GiB volume named `braindrop_data` mounted at `/data`.
+Both application and queue SQLite URLs point to that volume. The Dockerfile
+creates `/data` and assigns it to the non-root user; Fly's actual mounted-volume
+ownership still needs a real-machine verification. Do not use a release-command
+machine: it has no attached volume, while app startup applies migrations to the
+mounted databases.
+
+Install [flyctl](https://fly.io/docs/flyctl/install/) and authenticate with
+`fly auth login`. Review billing and region availability, then:
+
+```sh
+make fly-init
+make fly-deploy
+make fly-status
+make fly-logs
+```
+
+`fly-init` creates the app and volume only if absent; resource creation can
+incur charges. `fly-deploy` refuses to proceed if more than one machine exists
+and deploys with `--ha=false`. It never destroys resources or configures
+secrets. For custom app names, regions, volumes or memory, align `fly.toml` with
+`FLY_APP`, `FLY_REGION`, `FLY_VOLUME` and `FLY_MEMORY`. The single-machine
+constraint is enforced before deployment; Fly autostop does not create or
+destroy machines. The persistent volume survives ordinary stops and image
+deploys but is local to one host, is not replicated and may be unavailable
+during host failures or deploys. Keep verified off-host backups.
+
+For an application-level backup while online, run
+`fly ssh console -a braindrop -C 'scripts/backup.sh'`; like every online
+two-file run, the app and queue SQLite snapshots are sequential, not one atomic
+snapshot. For a quiesced point-in-time copy of the entire volume, identify the
+sole machine and attached volume, stop that machine, create a Fly volume
+snapshot, then start the same machine:
+
+```sh
+fly machine list -a braindrop
+fly volumes list -a braindrop
+fly machine stop <machine-id> -a braindrop --signal SIGTERM --timeout 30
+fly volumes snapshots create <volume-id> -a braindrop
+fly machine start <machine-id> -a braindrop --wait
+```
+
+Restore a snapshot into a new volume, verify it during planned maintenance,
+then change the configured mount only after confirming the snapshot and keeping
+the original volume intact:
+
+```sh
+fly volumes create braindrop_data_restore -a braindrop -r sin -s 1 \
+  --snapshot-id <snapshot-id>
+# Change [mounts].source in fly.toml to braindrop_data_restore, then:
+make fly-deploy
+```
+
+Keep the original volume until application and queue data are verified. Fly
+snapshots are platform recovery points, not an off-host application backup;
+keep a separate tested archive using `scripts/backup.sh`. Do not use `fly deploy`
+release commands for volume-backed backup or migration work.
+
+Demo behavior uses `auto_stop_machines = "stop"`,
+`auto_start_machines = true`, and `min_machines_running = 0`. Fly Proxy checks
+idle capacity every few minutes; the idle window is not a configurable
+15-minute guarantee. A stopped machine cold-starts on a request. The scheduler
+and queue worker cannot run while stopped. On restart, durable pending
+deliveries are recovered, but reminders have a 24-hour grace window and daily
+digests a 120-minute local-time delivery window. Longer stoppages can miss
+notices. No application idle timer is used.
+
+For installations requiring reliable reminders, digests and background work,
+set:
+
+```toml
+auto_stop_machines = "off"
+auto_start_machines = true
+min_machines_running = 1
+```
+
+One attached SQLite volume still means one replica and some downtime during
+deployments or host failures.
+
+### Fly secrets and administrator setup
+
+Configure sensitive values as Fly secrets. Never upload `.env` or commit real
+values:
+
+```sh
+fly secrets set JWT_SECRET="$(openssl rand -base64 32)"
+fly secrets set AI_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+# Optional: if unset, notification credentials use AI_ENCRYPTION_KEY.
+fly secrets set NOTIFICATION_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+# Optional server-wide key; do not set this for a public BYOK demo.
+fly secrets set OPENROUTER_API_KEY="..."
+```
+
+`JWT_SECRET` is required and must base64-decode to at least 32 random bytes.
+`AI_ENCRYPTION_KEY` is optional for manual use, but BYOK requires 32 random
+bytes encoded as base64. `NOTIFICATION_ENCRYPTION_KEY` is optional and falls
+back to the AI key. Keep encryption keys in an access-limited encrypted
+off-host secret backup and stable across deployments: losing or rotating one
+makes existing encrypted user credentials unreadable. Rotating `JWT_SECRET`
+invalidates sessions. Avoid putting generated values in shell history or logs.
+
+SMTP is only needed for verification, password-reset or magic-link email. Set
+`MAILER_ENABLED=true`, `MAILER_HOST`, `MAILER_PORT`, `MAILER_SECURE`, and the
+optional `MAILER_USER`/`MAILER_PASSWORD`. To let users use personal OpenRouter
+keys without a shared key, set non-secret `AI_ENABLED=true`, choose
+`OPENROUTER_MODEL`, and store `AI_ENCRYPTION_KEY` as a secret. Manual capture
+works with AI disabled.
+
+Registration remains disabled. After deployment, create the first account
+using an authenticated console:
+
+```sh
+fly ssh console -a braindrop -C 'braindrop-cli task admin:create email:admin@example.com name:Admin password:REPLACE_WITH_A_LONG_RANDOM_PASSWORD'
+```
+
+The task accepts a password argument. Avoid exposing a real password through
+shell history, process listings or captured logs; use a temporary random
+credential and change it after initial sign-in. Never publish a shared admin
+login.
+
+### Public demo policy
+
+Existing protections include disabled-by-default registration, authentication
+rate limits, per-user AI request limits, a 1 MiB request-body cap, encrypted
+write-only provider credentials and constrained provider destinations. Limits
+are process-local, item creation has no account quota, SQLite growth has no
+configured cap, and no demo account/data cleanup exists. Public access can
+therefore invite abuse and sensitive data retention. If opened, keep
+registration disabled until a manual account/retention process exists, do not
+configure a shared OpenRouter key, require users to bring their own key, ask
+users to use synthetic data, disclose cold starts and missed scheduled notices,
+and make no production-availability promise. No public URL is published by this
+task.
+
+### Fly pricing estimate
+
+Verified 2026-11-19 against [official Fly.io pricing](https://fly.io/docs/about/pricing/).
+The published shared-cpu-1x/256 MiB reference is USD $2.19 per 30 days in the
+lowest-priced regions; the documented Singapore 1 GiB example is priced
+differently, and the 256 MiB Singapore quote should be checked in the current
+calculator. A 1 GiB volume is $0.15/month, Asia-Pacific egress is $0.04/GB,
+and volume snapshots cost $0.08/GB-month after the first 10 GB free. Stopped
+machines still incur root-filesystem and volume charges. `$2.34` is only a
+lowest-region always-on compute-plus-volume reference, not a Singapore quote or
+a fixed bill; demo autostop reduces compute charges while stopped.
+
+## 6. Configuration
 
 Start from [`.env.example`](../.env.example). It is placeholder-only.
 
@@ -391,7 +546,7 @@ and does **not** send `Strict-Transport-Security`; configure HSTS at the
 TLS-terminating proxy before public exposure. Set `HOST` to the public HTTPS
 origin and restrict the application port to the proxy where possible.
 
-## 6. Database, queue and migrations
+## 7. Database, queue and migrations
 
 Both databases live on the same persistent volume:
 
@@ -413,7 +568,7 @@ application database before a job is enqueued, and a recovery scan requeues
 pending or abandoned deliveries after a restart, so losing the queue file is
 recoverable. Back it up anyway if you want in-flight jobs preserved exactly.
 
-## 7. Backups and restore
+## 8. Backups and restore
 
 ```sh
 # Docker
@@ -459,7 +614,7 @@ The repository self-tests this flow with real rows:
 
 Restore drills matter: a backup that has never been restored is a hypothesis.
 
-## 8. Upgrades and rollback
+## 9. Upgrades and rollback
 
 Docker:
 
@@ -482,7 +637,7 @@ non-backward-compatible way, restore the matching backup.
 Old releases beyond `KEEP_RELEASES` are pruned; the active release is never
 pruned.
 
-## 9. Health and observability
+## 10. Health and observability
 
 - `GET /_ping` — liveness
 - `GET /_health` — health (used by Docker, systemd health checks and deploy.sh)
@@ -498,7 +653,7 @@ Logs:
 - Alpine: `shared/logs/braindrop.log` and `shared/logs/braindrop.err.log`
 - Ubuntu: `journalctl -u braindrop -f`
 
-## 10. Security checklist
+## 11. Security checklist
 
 ### Application-provided hardening
 
@@ -559,7 +714,7 @@ requests at the edge. Only one application replica is supported.
 - [ ] One replica only
 - [ ] Logs contain no secrets or tokens
 
-## 11. Validation status
+## 12. Validation status
 
 What the project actually verifies today:
 

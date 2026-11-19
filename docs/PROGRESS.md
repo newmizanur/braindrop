@@ -15,9 +15,12 @@ Last updated: **2026-11-19**
 | 007 | Release | **Complete** | Security hardening, CSP/headers, release docs, security regression tests, v0.1.0 readiness — `READY WITH LIMITATIONS` |
 | 008 | Independent code review | **Complete** | Senior review recorded in `docs/tasks/008-code-review.md`; actionable findings assigned to Task 009 |
 | 009 | Review remediation | **Complete** | Security, SQLite, DTO, notification, deployment and cleanup findings remediated; final CI and six local packages verified — `READY WITH LIMITATIONS` |
+| 010 | Fly.io demo, TierHive deployment and benchmark documentation | **Local work complete; remote validation pending authorization** | Fly config/Make targets/docs are prepared; no TierHive connection or Fly provisioning/deployment was authorized. See `docs/tasks/010-deployment-validation.md`. |
 
-All milestones and review remediation are complete. Nothing was pushed, tagged,
-published or deployed without explicit authorization.
+Tasks 001–009 and their review remediation are complete. Task 010 local
+implementation is recorded; remote TierHive/Fly validation remains pending.
+Nothing was pushed, tagged, published or deployed without explicit
+authorization.
 
 ## Milestone 001 — Bootstrap
 

@@ -31,6 +31,7 @@ authorization.
 | Native binaries and SSH deployment | Working — six targets, Makefile, Alpine/Ubuntu services |
 | Task 007 release hardening | Complete — security headers, no-store cache policy, auth rate limits, release docs and full Docker-first CI |
 | Task 009 review remediation | Complete — atomic auth, bounded SQLite pools, generated API contracts, retry-safe notifications and safer backups/releases |
+| Task 010 deployment preparation | Local Fly.io configuration and docs ready; TierHive and Fly remote validation await authorization |
 
 Current release line: **v0.1.0** — see
 [`docs/releases/v0.1.0.md`](docs/releases/v0.1.0.md) and
@@ -218,7 +219,7 @@ delivery lifecycle.
 
 ## Deployment
 
-Three supported paths, all running the same binary and configuration:
+Supported deployment methods, all running the same application behavior:
 
 ```sh
 # Docker (most installs)
@@ -232,16 +233,29 @@ make build-alpine-amd64
 # SSH release flow (no Docker or compiler on the server)
 make deploy-init  SSH_HOST=server.example.com SSH_USER=root OS=alpine
 make deploy-linux SSH_HOST=server.example.com SSH_USER=deploy OS=ubuntu ARCH=arm64
+
+# Optional Fly.io Docker deployment (requires flyctl auth login)
+make fly-init
+make fly-deploy
 ```
 
-The runtime is one process (`start --all`) with one SQLite database and one
-SQLite queue on a persistent volume. Native targets are musl and glibc Linux
+Docker Compose is the default always-on path. Native deployment uses Alpine /
+OpenRC or Ubuntu / systemd archives; Fly.io is an optional managed Docker path
+with an idle-stopping demo profile.
+
+The runtime is one process (`start --all`) with separate application and queue
+SQLite files on persistent storage. Native targets are musl and glibc Linux
 (AMD64/ARM64) and macOS (Apple Silicon/Intel); Alpine/OpenRC and Ubuntu/systemd
 service installers are included. Backups use SQLite's online backup API and are
 restore-tested in CI.
 
 See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full contract, security
 checklist, upgrade/rollback flow and validation status.
+
+Task 009's local pool comparison reached 1,502 requests/second at pool max 4
+with 37 MB sampled process RSS. This is a synthetic single-host result, not a
+capacity or 128/256 MiB reliability claim; see [`docs/BENCHMARK.md`](docs/BENCHMARK.md)
+for the method and limitations.
 
 ## Continuous integration
 
@@ -286,6 +300,8 @@ docs/                specification, architecture, progress, deployment, tasks
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how the system is put together
 - [`docs/PROGRESS.md`](docs/PROGRESS.md) — milestone status and handoff notes
 - [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — production deployment plan
+- [`docs/BENCHMARK.md`](docs/BENCHMARK.md) — SQLite pool results and measurement limits
+- [`docs/tasks/010-deployment-validation.md`](docs/tasks/010-deployment-validation.md) — Task 010 deployment validation record
 - [`docs/tasks/`](docs/tasks/) — milestone-by-milestone implementation plan
 - [`docs/releases/v0.1.0.md`](docs/releases/v0.1.0.md) — release notes and checklist
 - [`CHANGELOG.md`](CHANGELOG.md) — release history
@@ -328,7 +344,7 @@ does **not** send HSTS — configure `Strict-Transport-Security` at the proxy.
 `REMOTE_IP_SOURCE` defaults to `ConnectInfo`; use `RightmostXForwardedFor` only
 behind one trusted proxy that overwrites `X-Forwarded-For`, never on a header a
 client can supply. See [`SECURITY.md`](SECURITY.md) and the
-[deployment security checklist](docs/DEPLOYMENT.md#10-security-checklist).
+[deployment security checklist](docs/DEPLOYMENT.md#11-security-checklist).
 
 Known residual risks and compensating controls:
 

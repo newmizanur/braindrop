@@ -1,0 +1,51 @@
+# Fly.io demo defaults. This deploys the existing production Docker image and
+# keeps both SQLite databases on one persistent volume.
+app = "braindrop"
+primary_region = "sin"
+kill_signal = "SIGTERM"
+kill_timeout = 30
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  LOCO_ENV = "production"
+  PORT = "5150"
+  BINDING = "0.0.0.0"
+  HOST = "https://braindrop.fly.dev"
+  DATABASE_URL = "sqlite:///data/braindrop.sqlite?mode=rwc"
+  QUEUE_URL = "sqlite:///data/braindrop_queue.sqlite?mode=rwc"
+  DB_AUTO_MIGRATE = "true"
+  DB_MAX_CONNECTIONS = "4"
+  ALLOW_REGISTRATION = "false"
+  REMOTE_IP_SOURCE = "FlyClientIp"
+
+[deploy]
+  # A single attached SQLite volume cannot be shared by replacement machines.
+  # Rolling with one unavailable machine avoids an HA/surge machine.
+  strategy = "rolling"
+  max_unavailable = 1
+
+[http_service]
+  internal_port = 5150
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "30s"
+    method = "GET"
+    path = "/_health"
+    timeout = "5s"
+
+[mounts]
+  source = "braindrop_data"
+  destination = "/data"
+  initial_size = "1GB"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "256mb"
