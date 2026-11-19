@@ -67,6 +67,27 @@ async fn can_create_with_password() {
     );
     assert_debug_snapshot!((user.email, user.name));
 }
+
+#[tokio::test]
+#[serial]
+async fn concurrent_registrations_are_resolved_by_the_unique_email_constraint() {
+    let boot = boot_test::<App>().await.unwrap();
+    let params = RegisterParams {
+        email: "unique-race@example.com".to_string(),
+        password: "long-enough-password".to_string(),
+        name: "Race User".to_string(),
+    };
+    let (first, second) = tokio::join!(
+        Model::create_with_password(&boot.app_context.db, &params),
+        Model::create_with_password(&boot.app_context.db, &params),
+    );
+    assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
+    let duplicate = if first.is_err() { first } else { second };
+    assert!(matches!(
+        duplicate,
+        Err(loco_rs::model::ModelError::EntityAlreadyExists)
+    ));
+}
 #[tokio::test]
 #[serial]
 async fn handle_create_with_password_with_duplicate() {
@@ -366,4 +387,31 @@ async fn magic_link() {
         actual_expiration <= should_expired_at,
         "Magic link expiration exceeds expected maximum expiration time"
     );
+}
+
+#[tokio::test]
+#[serial]
+async fn magic_link_consumption_is_atomic_under_concurrent_verification() {
+    let boot = boot_test::<App>().await.unwrap();
+    seed::<App>(&boot.app_context).await.unwrap();
+    let user = Model::find_by_pid(&boot.app_context.db, "11111111-1111-1111-1111-111111111111")
+        .await
+        .unwrap()
+        .into_active_model()
+        .create_magic_link(&boot.app_context.db)
+        .await
+        .unwrap();
+    let token = user.magic_link_token.unwrap();
+
+    let (first, second) = tokio::join!(
+        Model::consume_magic_link(&boot.app_context.db, &token),
+        Model::consume_magic_link(&boot.app_context.db, &token),
+    );
+    let consumed = [first.unwrap(), second.unwrap()];
+    assert_eq!(consumed.into_iter().filter(|result| *result).count(), 1);
+    let user = Model::find_by_email(&boot.app_context.db, "user1@example.com")
+        .await
+        .unwrap();
+    assert!(user.magic_link_token.is_none());
+    assert!(user.magic_link_expiration.is_none());
 }

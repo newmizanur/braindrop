@@ -3,7 +3,11 @@
 //! Only chat completions with a JSON-schema response are used. There is no
 //! streaming, tool calling, embedding or vector-store support.
 
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
@@ -15,6 +19,27 @@ use crate::ai::{
     error::AiError,
     prompt::{response_schema, ChatMessage},
 };
+
+fn shared_http_client(timeout: Duration) -> Result<Client, AiError> {
+    static CLIENTS: OnceLock<Mutex<HashMap<u64, Client>>> = OnceLock::new();
+    let timeout_seconds = timeout.as_secs();
+    let clients = CLIENTS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut clients = clients
+        .lock()
+        .map_err(|_| AiError::Provider("HTTP client cache is unavailable".to_string()))?;
+    if let Some(client) = clients.get(&timeout_seconds) {
+        return Ok(client.clone());
+    }
+    let client = Client::builder()
+        .timeout(timeout)
+        .connect_timeout(Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent(concat!("BrainDrop/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|_| AiError::Provider("could not create the HTTP client".to_string()))?;
+    clients.insert(timeout_seconds, client.clone());
+    Ok(client)
+}
 
 /// One extraction request. The provider owns the HTTP details; the prompt and
 /// schema are supplied by the caller so they can be tested without a network.
@@ -53,15 +78,9 @@ impl OpenRouterClient {
     ///
     /// Returns an error when the HTTP client cannot be created.
     pub fn new(resolved: &ResolvedAi) -> Result<Self, AiError> {
-        let http = Client::builder()
-            .timeout(resolved.timeout)
-            .connect_timeout(Duration::from_secs(10))
-            // The endpoint is operator-controlled and may carry a personal
-            // key. Never follow an unexpected redirect to another host.
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(concat!("BrainDrop/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .map_err(|_| AiError::Provider("could not create the HTTP client".to_string()))?;
+        // Client instances are shared by timeout setting, while API keys and
+        // request endpoints remain per-provider and never enter the cache.
+        let http = shared_http_client(resolved.timeout)?;
 
         Ok(Self {
             http,

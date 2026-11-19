@@ -4,14 +4,14 @@ use serde::{Deserialize, Deserializer, Serialize};
 use ts_rs::TS;
 
 use crate::models::items::{
-    normalize_tags, tags_from_json, ItemFilter, ItemPatch, ItemPriority, ItemSort, ItemStatus,
-    ItemType, Model, NewItem, SortOrder,
+    normalize_tags, tags_from_json, validate_tags, ItemFilter, ItemPatch, ItemPriority, ItemSort,
+    ItemStatus, ItemType, Model, NewItem, SortOrder,
 };
 
 /// The public JSON representation of an item. The database's internal id is
 /// never exposed; `pid` is the stable public identifier.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub struct ItemResponse {
     pub pid: String,
     #[serde(rename = "type")]
@@ -36,36 +36,53 @@ pub struct ItemResponse {
     pub updated_at: DateTimeWithTimeZone,
 }
 
-impl From<&Model> for ItemResponse {
-    fn from(item: &Model) -> Self {
-        Self {
+impl TryFrom<&Model> for ItemResponse {
+    type Error = loco_rs::Error;
+
+    fn try_from(item: &Model) -> Result<Self, Self::Error> {
+        let item_type = ItemType::parse(&item.item_type).ok_or_else(|| {
+            tracing::error!(item_pid = %item.pid, value = %item.item_type, "invalid persisted item type");
+            loco_rs::Error::InternalServerError
+        })?;
+        let status = ItemStatus::parse(&item.status).ok_or_else(|| {
+            tracing::error!(item_pid = %item.pid, value = %item.status, "invalid persisted item status");
+            loco_rs::Error::InternalServerError
+        })?;
+        let priority = ItemPriority::parse(&item.priority).ok_or_else(|| {
+            tracing::error!(item_pid = %item.pid, value = %item.priority, "invalid persisted item priority");
+            loco_rs::Error::InternalServerError
+        })?;
+        Ok(Self {
             pid: item.pid.to_string(),
-            item_type: ItemType::parse(&item.item_type).unwrap_or(ItemType::Task),
+            item_type,
             title: item.title.clone(),
             content: item.content.clone(),
             category: item.category.clone(),
             tags: tags_from_json(item.tags.as_ref()),
-            status: ItemStatus::parse(&item.status).unwrap_or(ItemStatus::Inbox),
-            priority: ItemPriority::parse(&item.priority).unwrap_or(ItemPriority::Normal),
+            status,
+            priority,
             due_at: item.due_at,
             remind_at: item.remind_at,
             completed_at: item.completed_at,
             archived_at: item.archived_at,
             created_at: item.created_at,
             updated_at: item.updated_at,
-        }
+        })
     }
 }
 
-impl From<Model> for ItemResponse {
-    fn from(item: Model) -> Self {
-        Self::from(&item)
+impl TryFrom<Model> for ItemResponse {
+    type Error = loco_rs::Error;
+
+    fn try_from(item: Model) -> Result<Self, Self::Error> {
+        Self::try_from(&item)
     }
 }
 
 /// One item in a create request.
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(optional_fields = nullable)]
+#[ts(export)]
 pub struct CreateItemParams {
     #[serde(rename = "type", default)]
     pub item_type: Option<ItemType>,
@@ -75,16 +92,16 @@ pub struct CreateItemParams {
     #[serde(default)]
     pub category: Option<String>,
     #[serde(default)]
-    pub tags: Vec<String>,
+    pub tags: Option<Vec<String>>,
     #[serde(default)]
     pub status: Option<ItemStatus>,
     #[serde(default)]
     pub priority: Option<ItemPriority>,
     #[serde(default)]
-    #[ts(type = "string | null")]
+    #[ts(optional, type = "string | null")]
     pub due_at: Option<DateTimeWithTimeZone>,
     #[serde(default)]
-    #[ts(type = "string | null")]
+    #[ts(optional, type = "string | null")]
     pub remind_at: Option<DateTimeWithTimeZone>,
 }
 
@@ -99,22 +116,11 @@ impl CreateItemParams {
         default_type: ItemType,
         default_priority: ItemPriority,
     ) -> Result<NewItem, String> {
-        let title = self.title.trim().to_string();
-        if title.is_empty() {
-            return Err("title must not be empty".to_string());
-        }
-        if title.chars().count() > 500 {
-            return Err("title must be at most 500 characters".to_string());
-        }
+        let title = normalize_title(self.title)?;
         let content = normalize_optional_text(self.content, 50_000, "content")?;
         let category = normalize_optional_text(self.category, 100, "category")?;
-        let tags = normalize_tags(self.tags);
-        if tags.iter().any(|tag| tag.chars().count() > 50) {
-            return Err("each tag must be at most 50 characters".to_string());
-        }
-        if tags.len() > 50 {
-            return Err("an item can have at most 50 tags".to_string());
-        }
+        let tags = normalize_tags(self.tags.unwrap_or_default());
+        validate_tags(&tags)?;
 
         Ok(NewItem {
             item_type: self.item_type.unwrap_or(default_type),
@@ -151,7 +157,7 @@ impl CreateItemsRequest {
 
 /// The response to a create request, for one item or many.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub struct CreateItemsResponse {
     pub items: Vec<ItemResponse>,
 }
@@ -179,10 +185,10 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Patch<T> {
 /// A partial item update. Absent fields are left unchanged; nullable fields
 /// can be cleared with an explicit `null`.
 #[derive(Clone, Debug, Default, Deserialize, TS)]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub struct UpdateItemParams {
     #[serde(rename = "type", default)]
-    #[ts(optional, type = "string")]
+    #[ts(optional, type = "\"task\" | \"note\" | \"idea\" | \"reminder\"")]
     pub item_type: Patch<ItemType>,
     #[serde(default)]
     #[ts(optional, type = "string")]
@@ -197,10 +203,13 @@ pub struct UpdateItemParams {
     #[ts(optional, type = "string[] | null")]
     pub tags: Patch<Option<Vec<String>>>,
     #[serde(default)]
-    #[ts(optional, type = "string")]
+    #[ts(
+        optional,
+        type = "\"inbox\" | \"pending\" | \"completed\" | \"archived\""
+    )]
     pub status: Patch<ItemStatus>,
     #[serde(default)]
-    #[ts(optional, type = "string")]
+    #[ts(optional, type = "\"low\" | \"normal\" | \"high\" | \"urgent\"")]
     pub priority: Patch<ItemPriority>,
     #[serde(default)]
     #[ts(optional, type = "string | null")]
@@ -218,16 +227,7 @@ impl UpdateItemParams {
     /// Returns a human-readable message for invalid input.
     pub fn into_patch(self) -> Result<ItemPatch, String> {
         let title = match self.title.0 {
-            Some(title) => {
-                let title = title.trim().to_string();
-                if title.is_empty() {
-                    return Err("title must not be empty".to_string());
-                }
-                if title.chars().count() > 500 {
-                    return Err("title must be at most 500 characters".to_string());
-                }
-                Some(title)
-            }
+            Some(title) => Some(normalize_title(title)?),
             None => None,
         };
 
@@ -242,9 +242,7 @@ impl UpdateItemParams {
         let tags = match self.tags.0 {
             Some(tags) => {
                 let tags = normalize_tags(tags.unwrap_or_default());
-                if tags.iter().any(|tag| tag.chars().count() > 50) {
-                    return Err("each tag must be at most 50 characters".to_string());
-                }
+                validate_tags(&tags)?;
                 Some(tags)
             }
             None => None,
@@ -343,6 +341,17 @@ fn clean(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn normalize_title(title: String) -> Result<String, String> {
+    let title = title.trim().to_string();
+    if title.is_empty() {
+        return Err("title must not be empty".to_string());
+    }
+    if title.chars().count() > 500 {
+        return Err("title must be at most 500 characters".to_string());
+    }
+    Ok(title)
+}
+
 fn normalize_optional_text(
     value: Option<String>,
     max: usize,
@@ -388,5 +397,45 @@ mod tests {
             filter.statuses,
             vec![ItemStatus::Inbox, ItemStatus::Pending]
         );
+    }
+
+    #[test]
+    fn create_and_update_reject_more_than_fifty_normalized_tags() {
+        let tags: Vec<String> = (0..51).map(|index| format!("tag-{index:02}")).collect();
+        let create = CreateItemParams {
+            item_type: None,
+            title: "A valid title".to_string(),
+            content: None,
+            category: None,
+            tags: Some(tags.clone()),
+            status: None,
+            priority: None,
+            due_at: None,
+            remind_at: None,
+        };
+        assert!(create
+            .into_new_item(ItemType::Task, ItemPriority::Normal)
+            .unwrap_err()
+            .contains("at most 50 tags"));
+
+        let update = UpdateItemParams {
+            tags: Patch(Some(Some(tags))),
+            ..Default::default()
+        };
+        assert!(update.into_patch().unwrap_err().contains("at most 50 tags"));
+    }
+
+    #[test]
+    fn create_dto_accepts_omitted_defaults_and_rejects_unknown_enums() {
+        let input: CreateItemParams = serde_json::from_str(r#"{"title":"Capture"}"#).unwrap();
+        let item = input
+            .into_new_item(ItemType::Task, ItemPriority::Normal)
+            .unwrap();
+        assert_eq!(item.item_type, ItemType::Task);
+        assert!(item.tags.is_empty());
+
+        let invalid =
+            serde_json::from_str::<CreateItemParams>(r#"{"type":"invalid","title":"Capture"}"#);
+        assert!(invalid.is_err());
     }
 }

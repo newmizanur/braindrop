@@ -22,7 +22,7 @@ impl ActiveModelBehavior for ActiveModel {}
 /// The provider a delivery goes through.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub enum NotificationChannel {
     Telegram,
     Discord,
@@ -50,7 +50,7 @@ impl NotificationChannel {
 /// Why a delivery exists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub enum NotificationType {
     Reminder,
     DailyDigest,
@@ -81,7 +81,7 @@ impl NotificationType {
 /// The lifecycle of one delivery.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub enum DeliveryStatus {
     Pending,
     Processing,

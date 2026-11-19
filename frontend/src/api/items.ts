@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import type { CreateItemsResponse } from '../bindings/CreateItemsResponse'
+import type { CreateItemParams } from '../bindings/CreateItemParams'
 import type { ItemPriority } from '../bindings/ItemPriority'
 import type { ItemResponse } from '../bindings/ItemResponse'
 import type { ItemSort } from '../bindings/ItemSort'
 import type { ItemStatus } from '../bindings/ItemStatus'
 import type { ItemType } from '../bindings/ItemType'
+import type { UpdateItemParams } from '../bindings/UpdateItemParams'
 import type { Page } from '../bindings/Page'
 import type { SortOrder } from '../bindings/SortOrder'
 import { del, get, patch, post } from './client'
@@ -28,21 +30,9 @@ export interface ItemFilters {
   pageSize?: number
 }
 
-/** The fields accepted by `POST /api/items`. */
-export interface ItemInput {
-  type?: ItemType
-  title: string
-  content?: string | null
-  category?: string | null
-  tags?: string[]
-  status?: ItemStatus
-  priority?: ItemPriority
-  due_at?: string | null
-  remind_at?: string | null
-}
-
-/** A partial update. An explicit `null` clears a nullable field. */
-export type ItemUpdate = Partial<ItemInput>
+/** The generated request DTOs are the API contract for item writes. */
+export type ItemInput = CreateItemParams
+export type ItemUpdate = UpdateItemParams
 
 /**
  * Turn the UI's camelCase filter object into the API's query string. Empty

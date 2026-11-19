@@ -35,6 +35,8 @@ target/
 
 # OS and editor noise
 .DS_Store
+__pycache__/
+*.py[cod]
 
 # Playwright artifacts
 frontend/test-results/

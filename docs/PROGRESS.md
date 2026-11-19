@@ -13,9 +13,11 @@ Last updated: **2026-11-19**
 | 005 | Notifications | **Complete** | Telegram/Discord clients, durable delivery queue, scheduler scans, settings UI, mocked tests |
 | 006 | Deployment and distribution | **Complete** | Docker Compose, six native targets, Makefile + SSH release flow, backups/restore, deployment CI and measurements |
 | 007 | Release | **Complete** | Security hardening, CSP/headers, release docs, security regression tests, v0.1.0 readiness — `READY WITH LIMITATIONS` |
+| 008 | Independent code review | **Complete** | Senior review recorded in `docs/tasks/008-code-review.md`; actionable findings assigned to Task 009 |
+| 009 | Review remediation | **Complete** | Security, SQLite, DTO, notification, deployment and cleanup findings remediated; final CI and six local packages verified — `READY WITH LIMITATIONS` |
 
-All milestones are complete. Milestone 007 remains gated: nothing was pushed,
-tagged, published or deployed without explicit authorization.
+All milestones and review remediation are complete. Nothing was pushed, tagged,
+published or deployed without explicit authorization.
 
 ## Milestone 001 — Bootstrap
 
@@ -948,17 +950,33 @@ deployment remain explicitly unauthorized and were not performed.
   and depend on correct `REMOTE_IP_SOURCE`; public exposure also needs edge
   limits. Only one application replica is supported.
 - `style-src 'unsafe-inline'` remains for Mantine runtime styles.
-- Most local `dist/` archives predate Task 007; the macOS ARM64 one was rebuilt
-  from current source for verification, and the authorized release workflow
-  rebuilds all six from the tagged commit before publication. Only the macOS
-  ARM64 package, `linux/arm64` Docker image and musl ARM64 package were booted
-  here; macOS AMD64, both Linux AMD64 binaries and glibc ARM64 were
-  cross-compiled but not runtime-tested.
+- Task 009 rebuilt and packaged all six native targets from the final local
+  source state and verified each SHA-256 sidecar. Native binaries were not
+  runtime-tested on each target operating system/architecture.
 - No SSH deployment or real service boot was executed against a target.
-- Application and queue SQLite databases are backed up sequentially; the queue
-  is recoverable but not transactional with the application database.
+- Application and queue SQLite databases are backed up sequentially; queue-first
+  ordering and recovery reduce inconsistency risk, but they are not an atomic
+  cross-database snapshot. Stop the service for a quiesced backup.
 - Sub-2 MiB idle RSS figures are for a single idle replica; they are not a
   capacity guarantee under sustained concurrent load.
+
+## Task 008–009 — Review and remediation
+
+- Task 008 is the read-only independent review in `docs/tasks/008-code-review.md`.
+- Task 009 disposition, evidence, benchmark results and limitations are in
+  `docs/tasks/009-remediation.md`.
+- Final `./scripts/ci.sh` passed: 101 unit tests, 103 integration/model/task
+  tests, 29 binding drift tests, 36 frontend tests, and 14 Playwright tests
+  passed (one screenshot capture skipped). Docker health, worker/scheduler,
+  restart persistence, static assets and in-container backup checks passed.
+- Application connection pool benchmark used 1/2/4/10 connections. Four was
+  selected: 1,501.9 req/s, p50 7.41 ms, p95 12.70 ms, p99 16.58 ms, 37.0 MB
+  sampled RSS; ten reached 1,508.7 req/s but had 14.70 ms p95, 22.66 ms p99 and
+  50.3 MB sampled RSS. No busy errors or acquisition timeouts occurred. This is a local
+  synthetic comparison; no pre-remediation baseline was captured.
+- All six native archives were rebuilt and each checksum verified locally.
+- Rust audit found no vulnerabilities and three unmaintained warnings with no
+  fixed upgrade; pnpm audit found no vulnerabilities.
 
 ## Next task
 

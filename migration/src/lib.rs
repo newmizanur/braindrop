@@ -8,6 +8,7 @@ mod m20261118_145151_user_settings;
 mod m20261118_161319_add_ai_settings;
 mod m20261119_000001_add_notification_settings;
 mod m20261119_000002_notification_deliveries;
+mod m20261119_000003_drop_redundant_item_user_index;
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -20,6 +21,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261118_161319_add_ai_settings::Migration),
             Box::new(m20261119_000001_add_notification_settings::Migration),
             Box::new(m20261119_000002_notification_deliveries::Migration),
+            Box::new(m20261119_000003_drop_redundant_item_user_index::Migration),
             // inject-above (do not remove this comment)
         ]
     }

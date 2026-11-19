@@ -8,7 +8,8 @@ update it when a milestone changes the design.
 
 Milestones 1 (bootstrap), 2 (auth and shell hardening), 3 (items and settings),
 4 (AI capture), 5 (notifications) and 6 (deployment and distribution) are
-complete. Task 007 release preparation is implemented and awaiting final CI:
+complete. Task 009 review remediation is implemented; see
+`docs/tasks/009-remediation.md` for validation evidence and remaining limits:
 
 - Loco application scaffold, generated with SQLite, a SQLite-backed queue and a
   client-side React SPA.
@@ -40,10 +41,20 @@ complete. Task 007 release preparation is implemented and awaiting final CI:
 - `./scripts/ci.sh` runs the full Docker-based validation suite, including a
   production image build and Playwright smoke tests. The AI Playwright flow uses
   a local mock provider, so CI needs no real credentials.
+- SQLite application pool defaults are one minimum and four maximum
+  connections. The SQLite queue is explicitly capped at two connections and
+  two workers. These are single-replica defaults; SQLite remains single-writer.
+- Dashboard counts use a conditional aggregate query with user-local day and
+  week boundaries. A follow-up migration removes the standalone `user_id`
+  index; query plans use the existing composite indexes.
+- `ts-rs` exports use `TS_RS_EXPORT_DIR`, centralized in
+  `scripts/typescript-bindings.sh`. CI regenerates into a temporary directory
+  and compares it with checked-in bindings.
 
-Notifications, deployment artifacts and the v0.1.0 documentation are therefore
-implemented; the final `./scripts/ci.sh` run, tagging, publishing and deployment
-are pending explicit authorization. See `docs/PROGRESS.md` and `docs/tasks/`.
+Notifications, deployment artifacts, review remediation and the v0.1.0
+documentation are implemented. Final CI and archive evidence is in
+`docs/PROGRESS.md`. Tagging, publishing and deployment remain gated on explicit
+authorization. See `docs/tasks/` for the review records.
 
 ## 2. Design principles
 
@@ -287,7 +298,9 @@ The generated Loco auth routes (`/api/auth/*`) and monitoring routes (`/_ping`,
 Conventions:
 
 - JSON request and response bodies, typed DTOs in `src/dtos/`.
-- `ts-rs` exports TypeScript bindings into `frontend/src/bindings/`.
+- `ts-rs` exports TypeScript bindings into `frontend/src/bindings/` through
+  `TS_RS_EXPORT_DIR`; run `scripts/typescript-bindings.sh generate` to update
+  them and `scripts/typescript-bindings.sh check` to verify synchronization.
 - Validation is declared on DTOs/models and returns 400/422 with a consistent
   error body. Invalid enum values return 422.
 - Not found and not-owned return 404; unauthenticated returns 401.
@@ -498,6 +511,7 @@ handlers.
 | `QUEUE_URL` | SQLite queue database | production |
 | `JWT_SECRET` | JWT signing key | production |
 | `HOST` | public base URL | production |
+| `DB_MAX_CONNECTIONS` | SQLite application pool maximum | no (default 4; minimum fixed at 1) |
 | `REMOTE_IP_SOURCE` | client-address source for auth rate limits: `ConnectInfo` (default) or `RightmostXForwardedFor` behind one trusted proxy | no |
 | `ALLOW_REGISTRATION` | enable public registration | no (default false in milestone 2) |
 | `REQUIRE_EMAIL_VERIFICATION` | require verified email to log in | no |

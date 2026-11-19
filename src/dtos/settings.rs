@@ -19,7 +19,7 @@ use crate::{
 /// credentials, tokens or integration secrets: only whether a personal key is
 /// stored and where the next request's credential would come from.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub struct SettingsResponse {
     pub timezone: String,
     pub theme: Theme,
@@ -34,7 +34,7 @@ pub struct SettingsResponse {
 /// The AI preferences and their resolved status. The status is computed
 /// server-side so the browser never has to guess whether a key exists.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub struct AiSettingsResponse {
     /// The account-level switch.
     pub enabled: bool,
@@ -74,7 +74,7 @@ impl SettingsResponse {
 /// Notification preferences and channel status. Credentials are represented by
 /// booleans only; the stored token and webhook never cross this boundary.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub struct NotificationSettingsResponse {
     pub enabled: bool,
     pub telegram: TelegramSettingsResponse,
@@ -86,7 +86,7 @@ pub struct NotificationSettingsResponse {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub struct TelegramSettingsResponse {
     pub enabled: bool,
     /// A token and a chat id are both stored.
@@ -98,7 +98,7 @@ pub struct TelegramSettingsResponse {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub struct DiscordSettingsResponse {
     pub enabled: bool,
     /// A webhook is stored.
@@ -159,7 +159,7 @@ impl AiSettingsResponse {
 ///
 /// Deliberately does not derive `Debug`: it carries write-only credentials.
 #[derive(Clone, Default, Deserialize, Serialize, TS)]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub struct UpdateSettingsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timezone: Option<String>,

@@ -6,7 +6,7 @@ import { IconPlus } from '@tabler/icons-react'
 import type { ItemPriority } from '../bindings/ItemPriority'
 import type { ItemResponse } from '../bindings/ItemResponse'
 import type { ItemType } from '../bindings/ItemType'
-import type { ItemInput, ItemFilters } from '../api/items'
+import type { ItemInput, ItemUpdate, ItemFilters } from '../api/items'
 import {
   useCreateItems,
   useDeleteItem,
@@ -110,7 +110,13 @@ export function ItemWorkspace({
 
   async function handleSubmit(input: ItemInput, pid?: string) {
     if (pid) {
-      await updateItem.mutateAsync({ pid, update: input })
+      const update: ItemUpdate = {
+        ...input,
+        type: input.type ?? undefined,
+        status: input.status ?? undefined,
+        priority: input.priority ?? undefined,
+      }
+      await updateItem.mutateAsync({ pid, update })
       notifications.show({
         title: 'Item updated',
         message: 'Your changes were saved.',

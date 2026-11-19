@@ -41,7 +41,6 @@ uuid = { version = "1.6", features = ["v4"] }
 # and a headless app can still emit them for external consumers.
 ts-rs = { version = "12", features = ["chrono-impl", "serde-compat"] }
 include_dir = { version = "0.7" }
-axum-extra = { version = "0.10", features = ["form"] }
 # The OpenRouter client. rustls avoids an OpenSSL runtime dependency in the
 # distroless-style production image; JSON and timeouts are all the app needs.
 reqwest = { version = "0.12", default-features = false, features = [

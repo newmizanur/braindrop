@@ -62,6 +62,8 @@ workers:
 # Queue Configuration
 queue:
   kind: Sqlite
+  max_connections: 2
+  num_workers: 2
   
   # SQLite connection URI
   uri: <%= get_env(name="QUEUE_URL", default="sqlite://loco_test.sqlite?mode=rwc") %>
@@ -104,7 +106,7 @@ database:
   # Set the idle duration before closing a connection.
   idle_timeout: <%= get_env(name="DB_IDLE_TIMEOUT", default="500") %>
   # Minimum number of connections for a pool.
-  min_connections: <%= get_env(name="DB_MIN_CONNECTIONS", default="1") %>
+  min_connections: 1
   # Maximum number of connections for a pool. One for SQLite: it has a single
   # writer, and a second pooled connection only waits on `busy_timeout`.
   max_connections: <%= get_env(name="DB_MAX_CONNECTIONS", default="1") %>

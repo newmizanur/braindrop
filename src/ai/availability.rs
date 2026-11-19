@@ -17,7 +17,7 @@ use crate::{
 /// Where the API key for a request came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub enum AiCredentialSource {
     Server,
     Personal,

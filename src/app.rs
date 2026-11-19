@@ -18,10 +18,8 @@ use std::path::Path;
 
 #[allow(unused_imports)]
 use crate::{
-    controllers,
-    models::_entities::users,
-    tasks,
-    workers::{downloader::DownloadWorker, notification_delivery::NotificationDeliveryWorker},
+    controllers, models::_entities::users, tasks,
+    workers::notification_delivery::NotificationDeliveryWorker,
 };
 
 pub struct App;
@@ -78,7 +76,6 @@ impl Hooks for App {
             .add_route(controllers::api_fallback::routes())
     }
     async fn connect_workers(ctx: &AppContext, queue: &Queue) -> Result<()> {
-        queue.register(DownloadWorker::build(ctx)).await?;
         queue
             .register(NotificationDeliveryWorker::build(ctx))
             .await?;

@@ -248,7 +248,12 @@ activate_release() {
   remote_script <<'SCRIPT'
 set -eu
 as_root() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
-as_root ln -sfn "$REMOTE_DIR/releases/$RELEASE_ID" "$REMOTE_DIR/current"
+temporary_link="$REMOTE_DIR/.current.$RELEASE_ID.$$"
+as_root rm -f "$temporary_link"
+as_root ln -s "$REMOTE_DIR/releases/$RELEASE_ID" "$temporary_link"
+# Same-directory rename atomically replaces the link on GNU coreutils and
+# BusyBox; -T prevents mv from treating a symlink-to-directory as a directory.
+as_root mv -Tf "$temporary_link" "$REMOTE_DIR/current"
 echo "==> Activated $REMOTE_DIR/releases/$RELEASE_ID"
 SCRIPT
 }
@@ -390,7 +395,10 @@ action_deploy() {
 set -eu
 as_root() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
 if [ -n "$PREVIOUS_RELEASE" ]; then
-  as_root ln -sfn "$PREVIOUS_RELEASE" "$REMOTE_DIR/current"
+  temporary_link="$REMOTE_DIR/.current.rollback.$$"
+  as_root rm -f "$temporary_link"
+  as_root ln -s "$PREVIOUS_RELEASE" "$temporary_link"
+  as_root mv -Tf "$temporary_link" "$REMOTE_DIR/current"
 fi
 SCRIPT
       restart_service || true
@@ -477,7 +485,10 @@ else
   done
 fi
 [ -n "$target" ] && [ -d "$target" ] || { echo "error: no previous release available" >&2; exit 1; }
-as_root ln -sfn "$target" "$REMOTE_DIR/current"
+temporary_link="$REMOTE_DIR/.current.rollback.$$"
+as_root rm -f "$temporary_link"
+as_root ln -s "$target" "$temporary_link"
+as_root mv -Tf "$temporary_link" "$REMOTE_DIR/current"
 echo "==> Rolled back to $target"
 SCRIPT
   restart_service

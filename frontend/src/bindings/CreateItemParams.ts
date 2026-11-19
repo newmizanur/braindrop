@@ -6,4 +6,4 @@ import type { ItemType } from "./ItemType";
 /**
  * One item in a create request.
  */
-export type CreateItemParams = { type: ItemType | null, title: string, content: string | null, category: string | null, tags: Array<string>, status: ItemStatus | null, priority: ItemPriority | null, due_at: string | null, remind_at: string | null, };
+export type CreateItemParams = { type?: ItemType | null, title: string, content?: string | null, category?: string | null, tags?: Array<string> | null, status?: ItemStatus | null, priority?: ItemPriority | null, due_at?: string | null, remind_at?: string | null, };

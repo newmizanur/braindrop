@@ -10,7 +10,7 @@ use ts_rs::TS;
 /// own `Pager`. Build it with [`Page::from_query`] rather than by hand — that
 /// is what keeps the two in step.
 #[derive(serde::Serialize, serde::Deserialize, TS)]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub struct Page<T: TS> {
     pub items: Vec<T>,
     #[ts(type = "number")]
@@ -26,22 +26,26 @@ pub struct Page<T: TS> {
 impl<T: TS> Page<T> {
     /// Build a page from a paginated query (`query::paginate`,
     /// `query::fetch_page`), mapping each model onto its DTO.
-    pub fn from_query<M>(res: PageResponse<M>) -> Self
+    pub fn try_from_query<M>(res: PageResponse<M>) -> loco_rs::Result<Self>
     where
-        T: From<M>,
+        T: TryFrom<M, Error = loco_rs::Error>,
     {
-        Self {
-            items: res.page.into_iter().map(T::from).collect(),
+        Ok(Self {
+            items: res
+                .page
+                .into_iter()
+                .map(T::try_from)
+                .collect::<loco_rs::Result<Vec<_>>>()?,
             page: res.meta.page,
             page_size: res.meta.page_size,
             total_pages: res.meta.total_pages,
             total_items: res.meta.total_items,
-        }
+        })
     }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, TS)]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub struct ApiError {
     pub code: String,
     pub message: String,

@@ -13,7 +13,7 @@ pub type UserSettings = Entity;
 /// The user's preferred colour scheme. `Auto` follows the operating system.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub enum Theme {
     Light,
     Dark,

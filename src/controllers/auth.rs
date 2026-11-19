@@ -21,7 +21,11 @@ pub struct ForgotParams {
 #[derive(Debug, Validate, Deserialize, Serialize)]
 pub struct ResetParams {
     pub token: String,
-    #[validate(length(min = 8, message = "password must be at least 8 characters"))]
+    #[validate(length(
+        min = 8,
+        max = 128,
+        message = "password must be between 8 and 128 characters"
+    ))]
     pub password: String,
 }
 
@@ -201,13 +205,15 @@ async fn reset(
 async fn login(
     State(ctx): State<AppContext>,
     remote_ip: RemoteIP,
-    Json(params): Json<LoginParams>,
+    JsonValidate(params): JsonValidate<LoginParams>,
 ) -> Result<Response> {
+    auth_rate_limit::check_client(&ctx, RateLimitEndpoint::Login, &remote_ip).await?;
     let Ok(user) = users::Model::find_by_email(&ctx.db, &params.email).await else {
         // Keep the response time close to a real password check so callers
         // cannot enumerate accounts by timing.
         let _ = hash::verify_password(&params.password, dummy_password_hash());
-        auth_rate_limit::check(&ctx, RateLimitEndpoint::Login, &remote_ip, &params.email).await?;
+        auth_rate_limit::check_account(&ctx, RateLimitEndpoint::Login, &remote_ip, &params.email)
+            .await?;
         tracing::debug!("login attempt with non-existent email");
         return unauthorized("Invalid credentials!");
     };
@@ -216,7 +222,8 @@ async fn login(
         // Only failed logins consume the budget. A correct password is always
         // accepted and clears the counter below, so knowing someone's email
         // cannot be used to keep them locked out.
-        auth_rate_limit::check(&ctx, RateLimitEndpoint::Login, &remote_ip, &params.email).await?;
+        auth_rate_limit::check_account(&ctx, RateLimitEndpoint::Login, &remote_ip, &params.email)
+            .await?;
         return unauthorized("Invalid credentials!");
     }
 
@@ -322,14 +329,17 @@ async fn magic_link_verify(
         );
         // Consume the one-time link even when it cannot be used yet. Otherwise
         // verifying the address by email would make the old link valid.
-        user.into_active_model().clear_magic_link(&ctx.db).await?;
+        let _ = users::Model::consume_magic_link(&ctx.db, &magic_token).await?;
         return forbidden(
             "email_verification_required",
             "Verify your email address before logging in.",
         );
     }
 
-    let user = user.into_active_model().clear_magic_link(&ctx.db).await?;
+    if !users::Model::consume_magic_link(&ctx.db, &magic_token).await? {
+        return unauthorized("unauthorized!");
+    }
+    let user = users::Model::find_by_pid(&ctx.db, &user.pid.to_string()).await?;
 
     let token = issue_token(&ctx, &user)?;
     auth_rate_limit::reset(

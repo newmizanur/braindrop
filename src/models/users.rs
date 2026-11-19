@@ -11,10 +11,15 @@ pub const MAGIC_LINK_LENGTH: i8 = 32;
 pub const MAGIC_LINK_EXPIRATION_MIN: i8 = 5;
 pub const RESET_TOKEN_EXPIRATION_MIN: i64 = 30;
 pub const EMAIL_VERIFICATION_EXPIRATION_MIN: i64 = 1440;
+pub const PASSWORD_MAX_LENGTH: usize = 128;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Validate, Deserialize, Serialize)]
 pub struct LoginParams {
+    #[validate(email(message = "invalid email"))]
     pub email: String,
+    // Existing accounts may have passwords that predate the registration minimum.
+    // Bound verification cost without preventing those users from signing in.
+    #[validate(length(max = 128, message = "password must be at most 128 characters"))]
     pub password: String,
 }
 
@@ -22,7 +27,11 @@ pub struct LoginParams {
 pub struct RegisterParams {
     #[validate(email(message = "invalid email"))]
     pub email: String,
-    #[validate(length(min = 8, message = "password must be at least 8 characters"))]
+    #[validate(length(
+        min = 8,
+        max = 128,
+        message = "password must be between 8 and 128 characters"
+    ))]
     pub password: String,
     #[validate(length(min = 2, message = "name must be at least 2 characters"))]
     pub name: String,
@@ -75,6 +84,30 @@ impl Authenticable for Model {
 }
 
 impl Model {
+    /// Atomically consume a valid magic link. Concurrent verifications cannot
+    /// both clear the token because the token must still match at write time.
+    pub async fn consume_magic_link(db: &DatabaseConnection, token: &str) -> ModelResult<bool> {
+        let now = Local::now();
+        let result = users::Entity::update_many()
+            .col_expr(
+                users::Column::MagicLinkToken,
+                Expr::value(Option::<String>::None),
+            )
+            .col_expr(
+                users::Column::MagicLinkExpiration,
+                Expr::value(Option::<chrono::DateTime<chrono::FixedOffset>>::None),
+            )
+            .filter(
+                model::query::condition()
+                    .eq(users::Column::MagicLinkToken, token)
+                    .gte(users::Column::MagicLinkExpiration, now)
+                    .build(),
+            )
+            .exec(db)
+            .await?;
+        Ok(result.rows_affected == 1)
+    }
+
     /// finds a user by the provided email
     ///
     /// # Errors
@@ -256,35 +289,26 @@ impl Model {
         db: &DatabaseConnection,
         params: &RegisterParams,
     ) -> ModelResult<Self> {
-        let txn = db.begin().await?;
-
-        if users::Entity::find()
-            .filter(
-                model::query::condition()
-                    .eq(users::Column::Email, &params.email)
-                    .build(),
-            )
-            .one(&txn)
-            .await?
-            .is_some()
-        {
-            return Err(ModelError::EntityAlreadyExists {});
-        }
-
         let password_hash =
             hash::hash_password(&params.password).map_err(|e| ModelError::Any(e.into()))?;
-        let user = users::ActiveModel {
+        users::ActiveModel {
             email: ActiveValue::set(params.email.clone()),
             password: ActiveValue::set(password_hash),
             name: ActiveValue::set(params.name.clone()),
             ..Default::default()
         }
-        .insert(&txn)
-        .await?;
-
-        txn.commit().await?;
-
-        Ok(user)
+        .insert(db)
+        .await
+        .map_err(|error| {
+            if matches!(
+                error.sql_err(),
+                Some(sea_orm::SqlErr::UniqueConstraintViolation(_))
+            ) {
+                ModelError::EntityAlreadyExists {}
+            } else {
+                ModelError::from(error)
+            }
+        })
     }
 
     /// Creates a JWT

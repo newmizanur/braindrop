@@ -4,14 +4,20 @@
 //! Cache failures fail open, because a broken limiter must not block the
 //! settings page entirely.
 
-use std::time::Duration;
+use std::{sync::OnceLock, time::Duration};
 
 use loco_rs::app::AppContext;
+use tokio::sync::Mutex;
 
 use crate::notifications::error::NotificationError;
 
 const WINDOW_SECONDS: i64 = 60;
 const CACHE_TTL_SECONDS: u64 = 120;
+
+fn rate_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 /// Record one test attempt for `user_id`, or reject it when the minute is full.
 ///
@@ -23,6 +29,7 @@ pub async fn check(ctx: &AppContext, user_id: i64, limit: u32) -> Result<(), Not
     let now = chrono::Utc::now().timestamp();
     let window = now.div_euclid(WINDOW_SECONDS);
     let key = format!("notifications:test:{user_id}:{window}");
+    let _guard = rate_lock().lock().await;
 
     let used = ctx
         .cache

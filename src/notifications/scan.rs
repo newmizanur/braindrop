@@ -291,7 +291,12 @@ pub async fn deliver(ctx: &AppContext, delivery_id: i64, now: DateTime<Utc>) -> 
     let outcome = match dispatch::prepare(ctx, &delivery, now).await {
         Ok(outcome) => outcome,
         Err(error) => {
-            Delivery::mark_failed(&ctx.db, delivery.id, &error.to_string()).await?;
+            if error.is_retryable() && delivery.attempts + 1 < config.max_attempts() {
+                let delay = dispatch::backoff(&config, delivery.attempts + 1, error.retry_after());
+                Delivery::mark_retry(&ctx.db, delivery.id, now + delay, &error.to_string()).await?;
+            } else {
+                Delivery::mark_failed(&ctx.db, delivery.id, &error.to_string()).await?;
+            }
             return Ok(());
         }
     };

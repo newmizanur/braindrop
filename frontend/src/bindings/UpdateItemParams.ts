@@ -4,4 +4,4 @@
  * A partial item update. Absent fields are left unchanged; nullable fields
  * can be cleared with an explicit `null`.
  */
-export type UpdateItemParams = { type?: string, title?: string, content?: string | null, category?: string | null, tags?: string[] | null, status?: string, priority?: string, due_at?: string | null, remind_at?: string | null, };
+export type UpdateItemParams = { type?: "task" | "note" | "idea" | "reminder", title?: string, content?: string | null, category?: string | null, tags?: string[] | null, status?: "inbox" | "pending" | "completed" | "archived", priority?: "low" | "normal" | "high" | "urgent", due_at?: string | null, remind_at?: string | null, };

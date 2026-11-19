@@ -13,9 +13,10 @@ tasks, notes, ideas, reminders, search, statistics or settings.**
 
 ## Status
 
-**Milestones 1–6 are complete, and release preparation for v0.1.0 is complete
-pending final CI validation.** Tagging, publishing and deployment have not
-happened and require explicit authorization.
+**Implementation and Task 009 review remediation for v0.1.0 are complete.**
+Final validation and packaging are recorded in [`docs/PROGRESS.md`](docs/PROGRESS.md).
+Tagging, publishing and deployment have not happened and require explicit
+authorization.
 
 | Area | State |
 |---|---|
@@ -29,6 +30,7 @@ happened and require explicit authorization.
 | Docker Compose deployment and backups | Working — production image, persistent volume, health check |
 | Native binaries and SSH deployment | Working — six targets, Makefile, Alpine/Ubuntu services |
 | Task 007 release hardening | Complete — security headers, no-store cache policy, auth rate limits, release docs and full Docker-first CI |
+| Task 009 review remediation | Complete — atomic auth, bounded SQLite pools, generated API contracts, retry-safe notifications and safer backups/releases |
 
 Current release line: **v0.1.0** — see
 [`docs/releases/v0.1.0.md`](docs/releases/v0.1.0.md) and

@@ -1,25 +1,20 @@
 //! Dashboard aggregates derived from the user's items.
 //!
-//! Counts are computed with `COUNT(*)` queries, each one scoped to the user,
-//! so the dashboard never loads an unbounded item list into memory.
+//! One conditional aggregate scan computes the dashboard counts, scoped to the
+//! user, without loading an unbounded item list into memory.
 
 use chrono::{DateTime, Duration, Utc};
 use loco_rs::prelude::*;
+use sea_orm::{DatabaseBackend, FromQueryResult, Statement};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{
-    models::{
-        items::{self, ItemStatus, ItemType},
-        user_settings,
-    },
-    time,
-};
+use crate::{models::user_settings, time};
 
 /// The numbers shown on the dashboard. All day and week windows are resolved
 /// in the user's timezone and queried in UTC.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub struct Stats {
     #[ts(type = "number")]
     pub total: i64,
@@ -53,27 +48,22 @@ pub struct Stats {
     pub generated_at: DateTime<Utc>,
 }
 
-async fn count(db: &DatabaseConnection, condition: Condition) -> Result<i64> {
-    let count = items::Entity::find().filter(condition).count(db).await?;
-    i64::try_from(count).map_err(|_| Error::InternalServerError)
-}
-
-fn status_condition(user_id: i64, status: ItemStatus) -> Condition {
-    Condition::all()
-        .add(items::Column::UserId.eq(user_id))
-        .add(items::Column::Status.eq(status.as_str()))
-}
-
-fn open_condition(user_id: i64) -> Condition {
-    Condition::all().add(items::Column::UserId.eq(user_id)).add(
-        items::Column::Status.is_in([ItemStatus::Inbox.as_str(), ItemStatus::Pending.as_str()]),
-    )
-}
-
-fn type_condition(user_id: i64, item_type: ItemType) -> Condition {
-    Condition::all()
-        .add(items::Column::UserId.eq(user_id))
-        .add(items::Column::ItemType.eq(item_type.as_str()))
+#[derive(FromQueryResult)]
+struct Counts {
+    total: i64,
+    inbox: i64,
+    pending: i64,
+    completed: i64,
+    archived: i64,
+    due_today: i64,
+    overdue: i64,
+    upcoming: i64,
+    completed_today: i64,
+    completed_week: i64,
+    tasks: i64,
+    notes: i64,
+    ideas: i64,
+    reminders: i64,
 }
 
 /// Compute the dashboard statistics for a user.
@@ -96,85 +86,55 @@ pub async fn compute(
     );
     let upcoming_end = time::start_of_day(timezone, today + Duration::days(8));
 
-    let today_range = Condition::all()
-        .add(items::Column::DueAt.gte(today_start.fixed_offset()))
-        .add(items::Column::DueAt.lt(tomorrow_start.fixed_offset()));
-    let upcoming_range = Condition::all()
-        .add(items::Column::DueAt.gte(tomorrow_start.fixed_offset()))
-        .add(items::Column::DueAt.lt(upcoming_end.fixed_offset()));
-    let completed_since = |since: DateTime<Utc>| {
-        Condition::all()
-            .add(items::Column::UserId.eq(user_id))
-            .add(items::Column::Status.eq(ItemStatus::Completed.as_str()))
-            .add(items::Column::CompletedAt.gte(since.fixed_offset()))
-    };
-
-    let (
-        total,
-        inbox,
-        pending,
-        completed,
-        archived,
-        due_today,
-        overdue,
-        upcoming,
-        completed_today,
-        completed_week,
-        tasks,
-        notes,
-        ideas,
-        reminders,
-    ) = tokio::try_join!(
-        count(db, Condition::all().add(items::Column::UserId.eq(user_id))),
-        count(db, status_condition(user_id, ItemStatus::Inbox)),
-        count(db, status_condition(user_id, ItemStatus::Pending)),
-        count(db, status_condition(user_id, ItemStatus::Completed)),
-        count(db, status_condition(user_id, ItemStatus::Archived)),
-        count(db, open_condition(user_id).add(today_range.clone())),
-        count(
-            db,
-            open_condition(user_id)
-                .add(items::Column::DueAt.lt(now.fixed_offset()))
-                .add(items::Column::DueAt.is_not_null())
-        ),
-        count(db, open_condition(user_id).add(upcoming_range)),
-        count(db, completed_since(today_start)),
-        count(db, completed_since(week_start)),
-        count(db, type_condition(user_id, ItemType::Task)),
-        count(db, type_condition(user_id, ItemType::Note)),
-        count(db, type_condition(user_id, ItemType::Idea)),
-        count(db, type_condition(user_id, ItemType::Reminder)),
-    )?;
+    let query = Statement::from_sql_and_values(
+        DatabaseBackend::Sqlite,
+        r#"SELECT
+            COUNT(*) AS total,
+            COALESCE(SUM(CASE WHEN status = 'inbox' THEN 1 ELSE 0 END), 0) AS inbox,
+            COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS pending,
+            COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0) AS completed,
+            COALESCE(SUM(CASE WHEN status = 'archived' THEN 1 ELSE 0 END), 0) AS archived,
+            COALESCE(SUM(CASE WHEN status IN ('inbox', 'pending') AND due_at >= ? AND due_at < ? THEN 1 ELSE 0 END), 0) AS due_today,
+            COALESCE(SUM(CASE WHEN status IN ('inbox', 'pending') AND due_at IS NOT NULL AND due_at < ? THEN 1 ELSE 0 END), 0) AS overdue,
+            COALESCE(SUM(CASE WHEN status IN ('inbox', 'pending') AND due_at >= ? AND due_at < ? THEN 1 ELSE 0 END), 0) AS upcoming,
+            COALESCE(SUM(CASE WHEN status = 'completed' AND completed_at >= ? THEN 1 ELSE 0 END), 0) AS completed_today,
+            COALESCE(SUM(CASE WHEN status = 'completed' AND completed_at >= ? THEN 1 ELSE 0 END), 0) AS completed_week,
+            COALESCE(SUM(CASE WHEN item_type = 'task' THEN 1 ELSE 0 END), 0) AS tasks,
+            COALESCE(SUM(CASE WHEN item_type = 'note' THEN 1 ELSE 0 END), 0) AS notes,
+            COALESCE(SUM(CASE WHEN item_type = 'idea' THEN 1 ELSE 0 END), 0) AS ideas,
+            COALESCE(SUM(CASE WHEN item_type = 'reminder' THEN 1 ELSE 0 END), 0) AS reminders
+         FROM items WHERE user_id = ?"#,
+        [
+            today_start.fixed_offset().into(),
+            tomorrow_start.fixed_offset().into(),
+            now.fixed_offset().into(),
+            tomorrow_start.fixed_offset().into(),
+            upcoming_end.fixed_offset().into(),
+            today_start.fixed_offset().into(),
+            week_start.fixed_offset().into(),
+            user_id.into(),
+        ],
+    );
+    let counts = Counts::find_by_statement(query)
+        .one(db)
+        .await?
+        .ok_or(Error::InternalServerError)?;
 
     Ok(Stats {
-        total,
-        inbox,
-        pending,
-        completed,
-        archived,
-        due_today,
-        overdue,
-        upcoming,
-        completed_today,
-        completed_week,
-        tasks,
-        notes,
-        ideas,
-        reminders,
+        total: counts.total,
+        inbox: counts.inbox,
+        pending: counts.pending,
+        completed: counts.completed,
+        archived: counts.archived,
+        due_today: counts.due_today,
+        overdue: counts.overdue,
+        upcoming: counts.upcoming,
+        completed_today: counts.completed_today,
+        completed_week: counts.completed_week,
+        tasks: counts.tasks,
+        notes: counts.notes,
+        ideas: counts.ideas,
+        reminders: counts.reminders,
         generated_at: now,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn status_condition_mentions_the_status() {
-        let condition = status_condition(7, ItemStatus::Inbox);
-        // The condition is opaque, but building it must not panic and it must
-        // be reusable in a query. This is a cheap guard against a typo in the
-        // column mapping.
-        let _ = condition;
-    }
 }

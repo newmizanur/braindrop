@@ -35,7 +35,7 @@ async fn list(
         .into_filter_and_pagination()
         .map_err(validation_error)?;
     let page = items::Model::list_for_user(&ctx.db, user.id, &filter, &pagination).await?;
-    format::json(Page::<ItemResponse>::from_query(page))
+    format::json(Page::<ItemResponse>::try_from_query(page)?)
 }
 
 #[debug_handler]
@@ -69,7 +69,10 @@ async fn create(
 
     let created = items::Model::create_many(&ctx.db, user.id, new_items).await?;
     let response = CreateItemsResponse {
-        items: created.iter().map(ItemResponse::from).collect(),
+        items: created
+            .iter()
+            .map(ItemResponse::try_from)
+            .collect::<Result<Vec<_>, _>>()?,
     };
 
     format::render().status(StatusCode::CREATED).json(response)
@@ -83,7 +86,7 @@ async fn show(
 ) -> Result<Response> {
     let user = current_user(&ctx, &auth).await?;
     let item = items::Model::find_by_pid_for_user(&ctx.db, user.id, &pid).await?;
-    format::json(ItemResponse::from(item))
+    format::json(ItemResponse::try_from(&item)?)
 }
 
 #[debug_handler]
@@ -96,7 +99,7 @@ async fn update(
     let user = current_user(&ctx, &auth).await?;
     let patch = params.into_patch().map_err(validation_error)?;
     let item = items::Model::update_for_user(&ctx.db, user.id, &pid, patch).await?;
-    format::json(ItemResponse::from(item))
+    format::json(ItemResponse::try_from(&item)?)
 }
 
 #[debug_handler]

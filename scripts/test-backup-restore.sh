@@ -25,19 +25,28 @@ mkdir -p "$DATA_DIR" "$BACKUP_DIR"
 sqlite3 "$DB_PATH" <<'SQL'
 CREATE TABLE items (id INTEGER PRIMARY KEY, title TEXT NOT NULL);
 INSERT INTO items (title) VALUES ('keep me'), ('and me');
+CREATE TABLE notification_deliveries (id INTEGER PRIMARY KEY, status TEXT NOT NULL);
+INSERT INTO notification_deliveries (id, status) VALUES (1, 'pending');
 CREATE TABLE user_settings (id INTEGER PRIMARY KEY, timezone TEXT NOT NULL);
 INSERT INTO user_settings (timezone) VALUES ('Europe/Berlin');
 SQL
 
 sqlite3 "$QUEUE_PATH" <<'SQL'
-CREATE TABLE jobs (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
-INSERT INTO jobs (name) VALUES ('notification-delivery');
+CREATE TABLE jobs (id INTEGER PRIMARY KEY, name TEXT NOT NULL, delivery_id INTEGER NOT NULL);
+INSERT INTO jobs (name, delivery_id) VALUES ('notification-delivery', 1);
 SQL
 
 echo "==> Creating backup"
-DATA_DIR="$DATA_DIR" DB_PATH="$DB_PATH" QUEUE_PATH="$QUEUE_PATH" \
+BACKUP_OUTPUT="$(DATA_DIR="$DATA_DIR" DB_PATH="$DB_PATH" QUEUE_PATH="$QUEUE_PATH" \
   BACKUP_DIR="$BACKUP_DIR" RETENTION_DAYS=30 \
-  ./scripts/backup.sh
+  ./scripts/backup.sh)"
+printf '%s\n' "$BACKUP_OUTPUT"
+QUEUE_BACKUP_LINE="$(printf '%s\n' "$BACKUP_OUTPUT" | grep -n "Backing up $QUEUE_PATH" | cut -d: -f1)"
+APP_BACKUP_LINE="$(printf '%s\n' "$BACKUP_OUTPUT" | grep -n "Backing up $DB_PATH" | cut -d: -f1)"
+[[ -n "$QUEUE_BACKUP_LINE" && -n "$APP_BACKUP_LINE" && "$QUEUE_BACKUP_LINE" -lt "$APP_BACKUP_LINE" ]] || {
+  echo "error: queue database was not backed up before the application database" >&2
+  exit 1
+}
 
 ARCHIVE="$(find "$BACKUP_DIR" -name 'braindrop-backup-*.tar.gz' -type f | head -n 1)"
 [[ -n "$ARCHIVE" ]] || {
@@ -76,6 +85,12 @@ TZ="$(sqlite3 "$DB_PATH" 'SELECT timezone FROM user_settings;')"
 JOB="$(sqlite3 "$QUEUE_PATH" 'SELECT name FROM jobs;')"
 [[ "$JOB" == "notification-delivery" ]] || {
   echo "error: queue database was not restored" >&2
+  exit 1
+}
+DELIVERY_ID="$(sqlite3 "$QUEUE_PATH" 'SELECT delivery_id FROM jobs;')"
+DELIVERY_STATUS="$(sqlite3 "$DB_PATH" "SELECT status FROM notification_deliveries WHERE id=$DELIVERY_ID;")"
+[[ "$DELIVERY_STATUS" == "pending" ]] || {
+  echo "error: restored queue job has no matching pending application delivery" >&2
   exit 1
 }
 

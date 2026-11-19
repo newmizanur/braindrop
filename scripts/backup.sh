@@ -69,15 +69,19 @@ backup_one() {
   [[ -s "$target" ]] || die "backup file is empty: $name"
 }
 
-backup_one "$DB_PATH"
-
 QUEUE_INCLUDED=0
 if [[ -f "$QUEUE_PATH" ]]; then
+  # Queue first, then app DB. Scheduling persists the delivery row before
+  # enqueueing its job; this ordering plus the recovery scan means a restored
+  # pair cannot contain a queued job whose delivery row is absent. These are
+  # still sequential online snapshots, not an atomic cross-database snapshot.
   backup_one "$QUEUE_PATH"
   QUEUE_INCLUDED=1
 else
   echo "warning: queue database not found at $QUEUE_PATH; skipping it" >&2
 fi
+
+backup_one "$DB_PATH"
 
 {
   echo "format=1"

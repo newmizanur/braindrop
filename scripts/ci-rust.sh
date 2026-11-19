@@ -14,6 +14,9 @@ cargo clippy --all-targets -- -D warnings
 echo "==> cargo test"
 cargo test --workspace
 
+echo "==> TypeScript binding drift"
+./scripts/typescript-bindings.sh check
+
 echo "==> SQLite migrations"
 rm -f /tmp/braindrop_ci.sqlite /tmp/braindrop_ci.sqlite-shm /tmp/braindrop_ci.sqlite-wal
 rm -f /tmp/braindrop_ci_queue.sqlite /tmp/braindrop_ci_queue.sqlite-shm /tmp/braindrop_ci_queue.sqlite-wal

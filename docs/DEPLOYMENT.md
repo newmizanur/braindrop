@@ -110,6 +110,34 @@ docker compose exec app ls -l /data/backups
 The image contains `sqlite3`, so the backup script uses the online backup API
 rather than copying a live file.
 
+The script backs up the queue database first and the application database
+second. Each `.backup` is individually consistent, but SQLite cannot make
+these two separate files one atomic snapshot. BrainDrop persists a notification
+delivery before enqueueing its queue job, and the recovery scan requeues pending
+deliveries after a restore; queue-first ordering therefore avoids restoring a
+job without its app delivery row. A scheduler/worker can still change state
+between the two snapshots.
+
+For stronger consistency, stop the BrainDrop process before running the script
+and start it again after the backup completes:
+
+```sh
+# Docker Compose
+docker compose stop app
+docker compose run --rm --no-deps app scripts/backup.sh
+docker compose start app
+
+# Native systemd / OpenRC
+sudo systemctl stop braindrop   # Ubuntu; use `sudo rc-service braindrop stop` on Alpine
+sudo -u braindrop /opt/braindrop/current/scripts/backup.sh
+sudo systemctl start braindrop # Ubuntu; use `sudo rc-service braindrop start` on Alpine
+```
+
+Stopping the process prevents both the scheduler and queue worker from changing
+either database during the pair of online backups. Keep the backup on the same
+host only as a staging copy; copy archives off-host and protect them as sensitive
+user data.
+
 ## 3. Native binaries
 
 Six release targets are supported:

@@ -33,6 +33,19 @@ const ENV_KEYS: &[&str] = &[
     "AI_ENCRYPTION_KEY",
 ];
 
+#[tokio::test]
+#[serial]
+async fn ai_rate_limit_allows_only_one_concurrent_request_at_the_limit() {
+    request::<App, _, _>(|_request, ctx| async move {
+        let (first, second) = tokio::join!(
+            braindrop::ai::rate_limit::check(&ctx, 867_530_901, 1),
+            braindrop::ai::rate_limit::check(&ctx, 867_530_901, 1),
+        );
+        assert_ne!(first.is_ok(), second.is_ok());
+    })
+    .await;
+}
+
 fn encryption_key() -> String {
     STANDARD.encode([9u8; 32])
 }

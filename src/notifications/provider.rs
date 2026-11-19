@@ -4,7 +4,12 @@
 //! cap. Telegram messages are plain text; Discord mentions are explicitly
 //! disabled so an item title cannot ping `@everyone` or a role.
 
-use std::{fmt, time::Duration};
+use std::{
+    collections::HashMap,
+    fmt,
+    sync::{Mutex, OnceLock},
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use reqwest::{Client, StatusCode, Url};
@@ -320,7 +325,16 @@ struct AllowedMentions {
 }
 
 fn http_client(timeout: Duration) -> Result<Client, NotificationError> {
-    Client::builder()
+    static CLIENTS: OnceLock<Mutex<HashMap<u64, Client>>> = OnceLock::new();
+    let timeout_seconds = timeout.as_secs();
+    let clients = CLIENTS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut clients = clients.lock().map_err(|_| {
+        NotificationError::NotConfigured("HTTP client cache is unavailable".to_string())
+    })?;
+    if let Some(client) = clients.get(&timeout_seconds) {
+        return Ok(client.clone());
+    }
+    let client = Client::builder()
         .timeout(timeout)
         .connect_timeout(Duration::from_secs(5))
         .redirect(reqwest::redirect::Policy::none())
@@ -328,7 +342,9 @@ fn http_client(timeout: Duration) -> Result<Client, NotificationError> {
         .build()
         .map_err(|_| {
             NotificationError::NotConfigured("could not create the HTTP client".to_string())
-        })
+        })?;
+    clients.insert(timeout_seconds, client.clone());
+    Ok(client)
 }
 
 async fn read_capped(mut response: reqwest::Response) -> Result<String, NotificationError> {

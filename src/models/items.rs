@@ -14,7 +14,7 @@ pub type Items = Entity;
 /// The kinds of thing a user can capture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub enum ItemType {
     Task,
     Note,
@@ -48,7 +48,7 @@ impl ItemType {
 /// The lifecycle state of an item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub enum ItemStatus {
     Inbox,
     Pending,
@@ -88,7 +88,7 @@ impl ItemStatus {
 /// How urgent an item is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub enum ItemPriority {
     Low,
     Normal,
@@ -150,7 +150,7 @@ pub struct ItemPatch {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub enum ItemSort {
     #[default]
     CreatedAt,
@@ -162,7 +162,7 @@ pub enum ItemSort {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "../frontend/src/bindings/")]
+#[ts(export)]
 pub enum SortOrder {
     Asc,
     #[default]
@@ -247,8 +247,8 @@ pub fn to_utc(value: DateTimeWithTimeZone) -> DateTimeWithTimeZone {
     value.with_timezone(&Utc).fixed_offset()
 }
 
-/// Normalize user-supplied text: trim, drop empties, de-duplicate tags and cap
-/// their number so a single request cannot create an unbounded JSON blob.
+/// Normalize user-supplied tags without discarding input. DTO validation applies
+/// the shared count and length limits after normalization.
 #[must_use]
 pub fn normalize_tags(tags: Vec<String>) -> Vec<String> {
     let mut normalized: Vec<String> = tags
@@ -258,8 +258,17 @@ pub fn normalize_tags(tags: Vec<String>) -> Vec<String> {
         .collect();
     normalized.sort();
     normalized.dedup();
-    normalized.truncate(50);
     normalized
+}
+
+pub fn validate_tags(tags: &[String]) -> Result<(), String> {
+    if tags.len() > 50 {
+        return Err("an item can have at most 50 tags".to_string());
+    }
+    if tags.iter().any(|tag| tag.chars().count() > 50) {
+        return Err("each tag must be at most 50 characters".to_string());
+    }
+    Ok(())
 }
 
 /// Read the tag list back out of the JSON column.

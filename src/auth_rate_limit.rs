@@ -149,6 +149,44 @@ pub async fn check(
     .await
 }
 
+/// Enforce the client-wide budget without consuming the account failure budget.
+/// Login calls this before database lookup and password hashing; account
+/// failures remain counted only after a failed credential check.
+pub async fn check_client(
+    ctx: &AppContext,
+    endpoint: Endpoint,
+    remote_ip: &RemoteIP,
+) -> Result<()> {
+    let client = client_key(remote_ip);
+    let _guard = rate_lock().lock().await;
+    check_counter(
+        ctx,
+        endpoint,
+        &format!("client:{client}"),
+        endpoint.client_limit(),
+    )
+    .await
+}
+
+/// Record a failed login against its account dimension after the client
+/// precheck has already consumed the client budget.
+pub async fn check_account(
+    ctx: &AppContext,
+    endpoint: Endpoint,
+    remote_ip: &RemoteIP,
+    identity: &str,
+) -> Result<()> {
+    let client = client_key(remote_ip);
+    let _guard = rate_lock().lock().await;
+    check_counter(
+        ctx,
+        endpoint,
+        &format!("account:{}", account_dimension(endpoint, identity, &client)),
+        endpoint.account_limit(),
+    )
+    .await
+}
+
 /// Clear the account's failed-login counter after a successful authentication.
 /// A correct password must never be held hostage by earlier wrong attempts
 /// from the same client. Cache failures are ignored deliberately.

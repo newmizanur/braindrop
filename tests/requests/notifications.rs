@@ -24,7 +24,7 @@ use braindrop::{
 };
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use loco_rs::{app::AppContext, testing::prelude::*};
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
 use serde_json::json;
 use serial_test::serial;
 
@@ -34,6 +34,19 @@ const TELEGRAM_TOKEN: &str = "123456789:abcdefghijklmnopqrstuvwxyz";
 const TELEGRAM_CHAT: &str = "-1001234567890";
 const DISCORD_WEBHOOK: &str =
     "https://discord.com/api/webhooks/123456789012345678/abcdefghijklmnopqrstuvwxyz0123456789ABCD";
+
+#[tokio::test]
+#[serial]
+async fn notification_rate_limit_allows_only_one_concurrent_request_at_the_limit() {
+    request::<App, _, _>(|_request, ctx| async move {
+        let (first, second) = tokio::join!(
+            braindrop::notifications::rate_limit::check(&ctx, 867_530_902, 1),
+            braindrop::notifications::rate_limit::check(&ctx, 867_530_902, 1),
+        );
+        assert_ne!(first.is_ok(), second.is_ok());
+    })
+    .await;
+}
 
 const ENV_KEYS: &[&str] = &[
     "NOTIFICATION_ENCRYPTION_KEY",
@@ -804,6 +817,36 @@ async fn retryable_failures_back_off_and_then_fail_after_the_attempt_limit() {
         assert_eq!(after_second.status, DeliveryStatus::Failed.as_str());
         assert_eq!(after_second.attempts, 2);
         assert_eq!(sender.calls().len(), 2);
+    })
+    .await;
+}
+
+#[tokio::test]
+#[serial]
+async fn transient_preparation_database_errors_are_retried() {
+    let _env = NotificationEnv::default_env();
+    request::<App, _, _>(|request, ctx| async move {
+        let user = prepare_data::init_user_login(&request, &ctx).await;
+        update_settings(&request, &user.token, enabled_payload()).await;
+        let now = fixed_now();
+        let delivery = seed_reminder(&ctx, user.user.id, now).await;
+
+        // Simulate a transient schema/read failure after the delivery claim.
+        // This isolated test database is discarded with the request context.
+        ctx.db
+            .execute_unprepared("DROP TABLE user_settings")
+            .await
+            .unwrap();
+        scan::deliver(&ctx, delivery.id, now).await.unwrap();
+
+        let after = load(&ctx, delivery.id).await;
+        assert_eq!(after.status, DeliveryStatus::Pending.as_str());
+        assert_eq!(after.attempts, 1);
+        assert!(after.next_attempt_at.is_some());
+        assert!(after
+            .last_error
+            .as_deref()
+            .is_some_and(|error| error.contains("could not be prepared")));
     })
     .await;
 }
