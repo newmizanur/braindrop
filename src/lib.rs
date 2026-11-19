@@ -7,6 +7,7 @@ pub mod data;
 pub mod dtos;
 pub mod initializers;
 pub mod mailers;
+pub mod middleware;
 pub mod models;
 pub mod notifications;
 pub mod tasks;

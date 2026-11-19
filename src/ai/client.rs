@@ -56,6 +56,9 @@ impl OpenRouterClient {
         let http = Client::builder()
             .timeout(resolved.timeout)
             .connect_timeout(Duration::from_secs(10))
+            // The endpoint is operator-controlled and may carry a personal
+            // key. Never follow an unexpected redirect to another host.
+            .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("BrainDrop/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|_| AiError::Provider("could not create the HTTP client".to_string()))?;

@@ -4,5 +4,6 @@ mod auth;
 mod items;
 mod notifications;
 mod prepare_data;
+mod security;
 mod settings;
 mod stats;

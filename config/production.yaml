@@ -40,6 +40,9 @@ server:
   host: <%= get_env(name="HOST") %>
   # Out of the box middleware configuration. to disable middleware you can changed the `enable` field to `false` of comment the middleware block
   middlewares:
+    limit_payload:
+      # All API bodies are JSON text; 1 MiB is generous for a personal inbox.
+      body_limit: 1mb
     fallback:
       enable: false
     static:
@@ -50,6 +53,27 @@ server:
         uri: "/"
         path: "frontend/dist"
       fallback: "frontend/dist/index.html"
+    remote_ip:
+      # Rate limiting uses this address. Keep `ConnectInfo` when the app is
+      # exposed directly. Behind one trusted reverse proxy that sets a correct
+      # X-Forwarded-For, set REMOTE_IP_SOURCE=RightmostXForwardedFor. Never
+      # trust a header from an untrusted edge.
+      enable: true
+      source: <%= get_env(name="REMOTE_IP_SOURCE", default="ConnectInfo") %>
+    secure_headers:
+      # Explicit headers are clearer than a preset: some Loco presets clear
+      # browser storage and disable the PWA's static caching. HSTS is set by
+      # the TLS reverse proxy, never by an app that cannot see TLS itself.
+      enable: true
+      preset: empty
+      overrides:
+        "Content-Security-Policy": "default-src 'self'; script-src 'self'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+        "X-Content-Type-Options": "nosniff"
+        "X-Frame-Options": "DENY"
+        "Referrer-Policy": "no-referrer"
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+        "Cross-Origin-Opener-Policy": "same-origin"
+        "Cross-Origin-Resource-Policy": "same-origin"
 
 # Worker Configuration
 workers:

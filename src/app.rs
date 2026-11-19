@@ -4,7 +4,10 @@ use loco_rs::{
     bgworker::{BackgroundWorker, Queue},
     boot::{create_app, BootResult, StartMode},
     config::Config,
-    controller::AppRoutes,
+    controller::{
+        middleware::{self, MiddlewareStackExt},
+        AppRoutes,
+    },
     db::{self, truncate_table},
     environment::Environment,
     task::Tasks,
@@ -50,6 +53,18 @@ impl Hooks for App {
         Ok(vec![Box::new(
             crate::initializers::notifications::Notifications,
         )])
+    }
+
+    /// Keep Loco's default stack and add the app's cache policy. Custom
+    /// authenticated responses and the SPA HTML must never enter the browser
+    /// HTTP cache; hashed assets keep their normal cache headers.
+    fn middlewares(ctx: &AppContext) -> Vec<Box<dyn middleware::MiddlewareLayer>> {
+        let mut stack = middleware::default_middleware_stack(ctx);
+        stack.insert_after(
+            "secure_headers",
+            Box::new(crate::middleware::cache_control::CacheControl),
+        );
+        stack
     }
 
     fn routes(_ctx: &AppContext) -> AppRoutes {

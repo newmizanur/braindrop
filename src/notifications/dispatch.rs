@@ -20,7 +20,7 @@ use crate::{
     },
     notifications::{
         config::NotificationSettings,
-        error::NotificationError,
+        error::{redacted_db_error, NotificationError},
         message::{self, OutgoingMessage},
         provider::{ChannelCredentials, HttpNotificationSender, NotificationSender},
         validate,
@@ -147,7 +147,7 @@ pub async fn send_test(
     let config = notification_settings(ctx)?;
     let settings = user_settings::Model::get_or_create(&ctx.db, user_id)
         .await
-        .map_err(|error| NotificationError::Provider(error.to_string()))?;
+        .map_err(|error| redacted_db_error(error, "get_or_create"))?;
 
     if !settings.channel_ready(channel) {
         return Err(NotificationError::NotConfigured(format!(
@@ -194,7 +194,7 @@ pub async fn prepare(
 
     let settings = user_settings::Model::find_by_user(&ctx.db, delivery.user_id)
         .await
-        .map_err(|error| NotificationError::Provider(error.to_string()))?
+        .map_err(|error| redacted_db_error(error, "find_by_user"))?
         .ok_or_else(|| {
             NotificationError::NotConfigured("the account has no settings row".to_string())
         })?;
@@ -239,7 +239,7 @@ pub async fn prepare(
             let Some(item) = items::Entity::find_by_id(item_id)
                 .one(&ctx.db)
                 .await
-                .map_err(|error| NotificationError::Provider(error.to_string()))?
+                .map_err(|error| redacted_db_error(error, "find_by_id"))?
             else {
                 return Ok(DeliveryOutcome::Skip("the item was deleted".to_string()));
             };
@@ -364,7 +364,7 @@ async fn open_items_with_due(
         .filter(items::Column::DueAt.is_not_null())
         .all(&ctx.db)
         .await
-        .map_err(|error| NotificationError::Provider(error.to_string()))
+        .map_err(|error| redacted_db_error(error, "open_items_with_due"))
 }
 
 /// Compute the delay before the next attempt.

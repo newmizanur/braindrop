@@ -22,6 +22,8 @@ server:
   host: http://localhost
   # Out of the box middleware configuration. to disable middleware you can changed the `enable` field to `false` of comment the middleware block
   middlewares: 
+    limit_payload:
+      body_limit: 1mb
     fallback:
       enable: false
     static:
@@ -32,6 +34,21 @@ server:
         uri: "/"
         path: "frontend/dist"
       fallback: "frontend/dist/index.html"
+    remote_ip:
+      enable: true
+      source: ConnectInfo
+    secure_headers:
+      # Mirrors production so header and cache regressions fail in Rust tests.
+      enable: true
+      preset: empty
+      overrides:
+        "Content-Security-Policy": "default-src 'self'; script-src 'self'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+        "X-Content-Type-Options": "nosniff"
+        "X-Frame-Options": "DENY"
+        "Referrer-Policy": "no-referrer"
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+        "Cross-Origin-Opener-Policy": "same-origin"
+        "Cross-Origin-Resource-Policy": "same-origin"
 
 # Worker Configuration
 workers:

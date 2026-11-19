@@ -23,6 +23,7 @@ use crate::{
     notifications::{
         config::NotificationSettings,
         dispatch::{self, DeliveryOutcome},
+        error::redacted_db_error,
         provider::NotificationSender,
     },
     time,
@@ -312,9 +313,7 @@ pub async fn deliver(ctx: &AppContext, delivery_id: i64, now: DateTime<Utc>) -> 
         let secret = dispatch::secret_box(ctx, &config)?;
         let settings = user_settings::Model::find_by_user(&ctx.db, delivery.user_id)
             .await
-            .map_err(|error| {
-                crate::notifications::error::NotificationError::Provider(error.to_string())
-            })?
+            .map_err(|error| redacted_db_error(error, "find_by_user"))?
             .ok_or_else(|| {
                 crate::notifications::error::NotificationError::NotConfigured(
                     "the account has no settings row".to_string(),

@@ -88,8 +88,35 @@ impl fmt::Display for NotificationError {
 
 impl std::error::Error for NotificationError {}
 
+/// Turn a database failure into a safe provider error.
+///
+/// SQLite error strings can name tables, columns and constraints. They are
+/// useful in server logs, but they must never reach an API response or a
+/// delivery record that the UI displays.
+pub fn redacted_db_error<E: fmt::Display>(error: E, operation: &str) -> NotificationError {
+    tracing::error!(
+        operation,
+        error = %error,
+        "notification database operation failed"
+    );
+    NotificationError::Provider("the notification could not be prepared".to_string())
+}
+
 impl From<NotificationError> for loco_rs::Error {
     fn from(error: NotificationError) -> Self {
         Self::string(&error.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn database_errors_are_redacted() {
+        let error = redacted_db_error("no such table: private_schema", "find_by_user");
+        let message = error.to_string();
+        assert!(!message.contains("private_schema"));
+        assert!(message.contains("could not be prepared"));
     }
 }
