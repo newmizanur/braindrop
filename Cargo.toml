@@ -71,3 +71,16 @@ insta = { version = "1.34", features = ["filters"] }
 # the size of target/.
 [profile.dev.package."*"]
 debug = false
+
+# Release artefacts are shipped as standalone binaries and inside the runtime
+# image, so size matters. Thin LTO and one codegen unit keep most of the
+# cross-crate optimisation without the very long build time of fat LTO.
+# `panic = "unwind"` is deliberately left at the Rust default: Loco and its
+# dependencies use unwinding for task isolation, and `abort` would change
+# failure behaviour for no meaningful size win.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "unwind"

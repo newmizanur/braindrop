@@ -17,9 +17,16 @@ RUN pnpm build
 # ---- Rust build -----------------------------------------------------------
 FROM rust:1-bookworm AS builder
 
+# The app uses rustls for outbound TLS, but libsqlite3-sys and some build
+# scripts still want pkg-config. No OpenSSL is linked into the binary.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends pkg-config libssl-dev \
+    && apt-get install -y --no-install-recommends pkg-config \
     && rm -rf /var/lib/apt/lists/*
+
+# Optional build identity shown in `app_version()`. Pass it from CI/release
+# builds; the default keeps local builds working.
+ARG BUILD_SHA=dev
+ENV BUILD_SHA=${BUILD_SHA}
 
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
@@ -37,17 +44,24 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # ---- Runtime --------------------------------------------------------------
 FROM debian:bookworm-slim AS runtime
 
+# curl is used by the container health check and by operators. sqlite3, tar,
+# gzip and find are included so `scripts/backup.sh` and `scripts/restore.sh`
+# can run inside the container without a second image. No compiler, Node.js,
+# pnpm or source tree is present.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates curl sqlite3 tar gzip findutils \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --create-home --home-dir /app braindrop \
-    && mkdir -p /data \
+    && mkdir -p /data /app/scripts \
     && chown braindrop:braindrop /data
 
 WORKDIR /app
 COPY --from=builder /usr/local/bin/braindrop-cli /usr/local/bin/braindrop-cli
 COPY config ./config
 COPY --from=frontend /app/frontend/dist ./frontend/dist
+COPY scripts ./scripts
+COPY .env.example README.md LICENSE ./
 
 ENV LOCO_ENV=production \
     PORT=5150 \
@@ -55,9 +69,12 @@ ENV LOCO_ENV=production \
 
 USER braindrop
 EXPOSE 5150
+STOPSIGNAL SIGTERM
 
-HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=6 \
-    CMD curl -fsS http://127.0.0.1:5150/_health || exit 1
+HEALTHCHECK --interval=15s --timeout=3s --start-period=15s --retries=4 \
+    CMD curl -fsS "http://127.0.0.1:${PORT:-5150}/_health" || exit 1
 
 ENTRYPOINT ["braindrop-cli"]
-CMD ["start"]
+# One process serves HTTP, consumes the SQLite queue and runs the scheduler.
+# Override with `--worker`/`--scheduler` for a split deployment.
+CMD ["start", "--all"]

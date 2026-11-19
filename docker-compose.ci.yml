@@ -40,6 +40,7 @@ services:
       LOG_LEVEL: info
       ALLOW_REGISTRATION: "false"
       REQUIRE_EMAIL_VERIFICATION: "false"
+      MAILER_ENABLED: "true"
       MAILER_HOST: localhost
       MAILER_PORT: "1025"
       MAILER_USER: ci

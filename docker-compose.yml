@@ -1,0 +1,44 @@
+# Production single-node deployment.
+#
+#   cp .env.example .env
+#   # edit .env (at minimum JWT_SECRET and HOST)
+#   docker compose up -d
+#
+# The named volume holds the application database, the SQLite job queue and
+# their WAL/SHM sidecars. `docker compose down` keeps it; only
+# `docker compose down -v` deletes it. See docs/DEPLOYMENT.md.
+
+name: braindrop
+
+services:
+  app:
+    image: ${BRAINDROP_IMAGE:-braindrop:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        BUILD_SHA: ${BUILD_SHA:-dev}
+    env_file:
+      - .env
+    ports:
+      # Keep the host and container ports identical so HOST, the health check
+      # and reverse-proxy configuration all agree. Change PORT in .env.
+      - "${PORT:-5150}:${PORT:-5150}"
+    volumes:
+      - braindrop-data:/data
+    restart: unless-stopped
+    # Loco handles SIGTERM and stops the worker/scheduler cleanly. `init`
+    # reaps orphaned child processes and forwards signals.
+    init: true
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS \"http://127.0.0.1:${PORT:-5150}/_health\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  braindrop-data:
+    name: braindrop-data

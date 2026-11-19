@@ -7,8 +7,9 @@
 # secret or a localhost database is worse than one that refuses to boot.
 #
 # The variables this file requires:
-#   DATABASE_URL, JWT_SECRET, HOST, and the MAILER_* / REDIS_URL set below,
-#   depending on which features you generated.
+#   DATABASE_URL, QUEUE_URL, JWT_SECRET and HOST. Mail is optional and only
+#   reads MAILER_* when MAILER_ENABLED=true; AI and notifications have safe
+#   empty defaults.
 
 # Application logging configuration
 logger:
@@ -91,20 +92,28 @@ scheduler:
       schedule: "0 15 3 * * *"
 
 # Mailer Configuration.
+#
+# Mail is optional. A small self-hosted install with public registration
+# disabled does not need SMTP, so the mailer is off unless explicitly enabled.
+# Set MAILER_ENABLED=true and fill in the SMTP settings before turning on
+# email verification, password reset or magic links.
 mailer:
   # SMTP mailer configuration.
   smtp:
     # Enable/Disable smtp mailer.
-    enable: true
+    enable: <%= get_env(name="MAILER_ENABLED", default="false") %>
     # SMTP server host. e.x localhost, smtp.gmail.com
-    host: <%= get_env(name="MAILER_HOST") %>
+    # Quoted so an empty value stays an empty string instead of YAML null.
+    host: "<%= get_env(name="MAILER_HOST", default="localhost") %>"
     # SMTP server port
     port: <%= get_env(name="MAILER_PORT", default="587") %>
     # Use secure connection (SSL/TLS).
-    secure: true
+    secure: <%= get_env(name="MAILER_SECURE", default="true") %>
     auth:
-      user: <%= get_env(name="MAILER_USER") %>
-      password: <%= get_env(name="MAILER_PASSWORD") %>
+      # The YAML values must be strings even when empty, otherwise the mailer
+      # config parser sees a null and refuses to boot.
+      user: "<%= get_env(name="MAILER_USER", default="") %>"
+      password: "<%= get_env(name="MAILER_PASSWORD", default="") %>"
     # Override the SMTP hello name (default is the machine's hostname)
     # hello_name:
 
