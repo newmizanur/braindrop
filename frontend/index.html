@@ -15,29 +15,7 @@
     <meta name="apple-mobile-web-app-title" content="BrainDrop" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>BrainDrop</title>
-    <script>
-      // Resolve the Mantine color scheme before first paint to avoid a flash.
-      ;(() => {
-        try {
-          const stored = localStorage.getItem('mantine-color-scheme-value')
-          const scheme =
-            stored === 'light' || stored === 'dark'
-              ? stored
-              : window.matchMedia('(prefers-color-scheme: dark)').matches
-                ? 'dark'
-                : 'light'
-          document.documentElement.setAttribute(
-            'data-mantine-color-scheme',
-            scheme,
-          )
-        } catch {
-          document.documentElement.setAttribute(
-            'data-mantine-color-scheme',
-            'light',
-          )
-        }
-      })()
-    </script>
+    <script src="/color-scheme.js"></script>
   </head>
   <body>
     <div id="root"></div>

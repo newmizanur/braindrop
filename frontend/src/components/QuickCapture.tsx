@@ -296,33 +296,40 @@ export function QuickCapture({
               <Button variant="subtle" color="gray" onClick={handleClose}>
                 Cancel
               </Button>
-              <Group gap="xs">
-                <Tooltip
-                  label={
-                    aiAvailable
-                      ? 'Turn this text into editable suggestions'
-                      : `${aiStatusText} Configure AI in Integrations.`
-                  }
-                  withArrow
-                >
-                  <Button
-                    variant="light"
-                    leftSection={<IconSparkles size={16} />}
-                    onClick={handleOrganize}
-                    loading={parseItems.isPending}
-                    disabled={!aiAvailable || createItems.isPending}
+              <Stack gap={4} align="flex-end">
+                <Group gap="xs">
+                  <Tooltip
+                    label={
+                      aiAvailable
+                        ? 'Turn this text into editable suggestions'
+                        : `${aiStatusText} Configure AI in Integrations.`
+                    }
+                    withArrow
                   >
-                    Organize with AI
+                    <Button
+                      variant="light"
+                      leftSection={<IconSparkles size={16} />}
+                      onClick={handleOrganize}
+                      loading={parseItems.isPending}
+                      disabled={!aiAvailable || createItems.isPending}
+                    >
+                      Organize with AI
+                    </Button>
+                  </Tooltip>
+                  <Button
+                    onClick={handleSaveManual}
+                    loading={createItems.isPending}
+                    disabled={parseItems.isPending}
+                  >
+                    Save to inbox
                   </Button>
-                </Tooltip>
-                <Button
-                  onClick={handleSaveManual}
-                  loading={createItems.isPending}
-                  disabled={parseItems.isPending}
-                >
-                  Save to inbox
-                </Button>
-              </Group>
+                </Group>
+                {!aiAvailable && (
+                  <Text size="xs" c="dimmed">
+                    {aiStatusText} Configure AI in Integrations.
+                  </Text>
+                )}
+              </Stack>
             </Group>
           </>
         ) : (

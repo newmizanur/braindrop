@@ -72,3 +72,12 @@ body {
   outline: 2px solid var(--mantine-color-white);
   outline-offset: 2px;
 }
+
+/* Mantine's default `dimmed` token is below WCAG AA on our backgrounds. */
+[data-mantine-color-scheme='light'] {
+  --mantine-color-dimmed: var(--mantine-color-gray-7);
+}
+
+[data-mantine-color-scheme='dark'] {
+  --mantine-color-dimmed: var(--mantine-color-gray-4);
+}

@@ -7,7 +7,9 @@
  * from the cache. API requests are always handled by the network.
  */
 
-const CACHE = 'braindrop-shell-v1'
+// Bumped for v0.1.0 so older shells (and any stale cached responses) are
+// discarded when the release service worker activates.
+const CACHE = 'braindrop-shell-v2'
 const SHELL = [
   '/',
   '/index.html',

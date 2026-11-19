@@ -24,10 +24,10 @@ export function ConfirmDialog({
       <Stack gap="lg">
         <Text size="sm">{message}</Text>
         <Group justify="flex-end">
-          <Button variant="default" onClick={onCancel} disabled={loading}>
+          <Button type="button" variant="default" onClick={onCancel} disabled={loading}>
             Cancel
           </Button>
-          <Button color="red" onClick={onConfirm} loading={loading}>
+          <Button type="button" color="red" onClick={onConfirm} loading={loading}>
             {confirmLabel}
           </Button>
         </Group>

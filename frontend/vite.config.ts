@@ -15,7 +15,29 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
-    build: { outDir: 'dist' },
+    build: {
+      outDir: 'dist',
+      rolldownOptions: {
+        output: {
+          codeSplitting: {
+            groups: [
+              {
+                name: 'react-vendor',
+                test: /node_modules\/(?:react|react-dom|react-router|scheduler)\//,
+              },
+              {
+                name: 'ui-vendor',
+                test: /node_modules\/(?:@mantine|@tabler|@floating-ui)\//,
+              },
+              {
+                name: 'data-vendor',
+                test: /node_modules\/(?:@tanstack|dayjs)\//,
+              },
+            ],
+          },
+        },
+      },
+    },
     server: {
       port: 5173,
       proxy: { '/api': `http://localhost:${backendPort}` },

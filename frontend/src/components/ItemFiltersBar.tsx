@@ -149,8 +149,8 @@ export function ItemFiltersBar({
               onChange({ ...value, order: next as SortOrder })
             }
             data={[
-              { value: 'asc', label: 'Asc' },
-              { value: 'desc', label: 'Desc' },
+              { value: 'asc', label: 'Ascending' },
+              { value: 'desc', label: 'Descending' },
             ]}
             aria-label="Sort direction"
           />

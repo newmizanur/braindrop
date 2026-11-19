@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { Link, NavLink as RouterNavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import {
   ActionIcon,
@@ -35,12 +35,18 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 
 import { Brand } from './components/Brand'
-import { QuickCapture } from './components/QuickCapture'
 import { ThemeToggle } from './components/ThemeToggle'
 import { useCurrentUser } from './api/auth'
 import { useSettings } from './api/settings'
 import { clearToken } from './auth/token'
 import { initials } from './lib/initials'
+
+// Quick capture owns a date-time picker, so load it only when a user opens it.
+const QuickCapture = lazy(() =>
+  import('./components/QuickCapture').then((module) => ({
+    default: module.QuickCapture,
+  })),
+)
 
 interface NavItem {
   to: string
@@ -247,15 +253,17 @@ export function App() {
       </AppShell>
 
       {captureOpened && (
-        <QuickCapture
-          opened
-          onClose={closeCapture}
-          defaults={{
-            type: settings.data?.default_item_type,
-            priority: settings.data?.default_priority,
-          }}
-          ai={settings.data?.ai}
-        />
+        <Suspense fallback={null}>
+          <QuickCapture
+            opened
+            onClose={closeCapture}
+            defaults={{
+              type: settings.data?.default_item_type,
+              priority: settings.data?.default_priority,
+            }}
+            ai={settings.data?.ai}
+          />
+        </Suspense>
       )}
     </>
   )
