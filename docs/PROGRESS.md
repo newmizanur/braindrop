@@ -11,11 +11,11 @@ Last updated: **2026-11-19**
 | 003 | Items and settings | **Complete** | Items CRUD, filtering, pagination, stats, per-user settings, item UI |
 | 004 | AI capture | **Complete** | OpenRouter client, `/api/ai/parse`, encrypted BYOK, review UI, mocked tests |
 | 005 | Notifications | **Complete** | Telegram/Discord clients, durable delivery queue, scheduler scans, settings UI, mocked tests |
-| 006 | Deployment | Not started | Deployment compose, GHCR publishing, TierHive template, backups (image and CI already delivered) |
+| 006 | Deployment and distribution | **Complete** | Docker Compose, six native targets, Makefile + SSH release flow, backups/restore, deployment CI and measurements |
 | 007 | Release | Not started | Smoke tests, security review, docs, release |
 
-Work proceeds one milestone at a time. Do not start milestone 006 until milestone
-005 is reviewed.
+Work proceeds one milestone at a time. Do not start milestone 007 until milestone
+006 is reviewed.
 
 ## Milestone 001 — Bootstrap
 
@@ -613,6 +613,183 @@ None.
 - Digest and overdue scans run every minute/hour rather than at exact per-user
   times; the delivery window and local-day keys make repeated runs safe.
 
+## Milestone 006 — Deployment and distribution
+
+### Delivered
+
+**Docker and Compose (006A)**
+
+- Production `docker-compose.yml`, separate from the test-only
+  `docker-compose.ci.yml`.
+- Named volume `braindrop-data` at `/data` for the application database, the
+  queue database and their WAL/SHM sidecars.
+- `env_file: .env`, identical host/container port, health check, restart policy,
+  `init: true` and a 30-second stop grace period.
+- `Dockerfile` runs `start --all` and includes `sqlite3`, `tar`, `gzip` and
+  `findutils` so backups run inside the container.
+- Release profile: `opt-level = 3`, `lto = "thin"`, `codegen-units = 1`,
+  `strip = "symbols"`, `panic = "unwind"`.
+- `.env.example` with placeholders only. Mail is disabled by default, so a
+  manual-only install boots without SMTP.
+- Mailer config quotes optional strings so an empty `MAILER_HOST`, `MAILER_USER`
+  or `MAILER_PASSWORD` is not parsed as YAML null.
+
+**Native builds and distribution (006B)**
+
+- Six targets: musl and glibc Linux (AMD64/ARM64), macOS (Apple Silicon/Intel).
+- `scripts/build-native.sh`: musl through `messense/rust-musl-cross`, glibc
+  through a `rust:1-bullseye` toolchain (glibc 2.31 baseline), macOS natively.
+- `scripts/package.sh`: `dist/braindrop-<platform>/` with the binary, config,
+  `frontend/dist`, scripts, `.env.example`, docs, `RELEASE`, plus a `.tar.gz`
+  and SHA-256 sidecar. Layout checks reject databases and real `.env` files.
+- `scripts/build-frontend.sh` uses the pinned pnpm version.
+
+**Makefile and SSH deployment (006C)**
+
+- Documented `Makefile` with the required variables and every workflow.
+- `scripts/deploy.sh` uses only `ssh` and `scp`. It validates arguments, stages
+  uploads, extracts atomically, preserves `shared/.env` and data, migrates,
+  repoints `current`, restarts, health-checks, prunes old releases and rolls back
+  the release (not the database) on failure.
+- `scripts/deploy-init-alpine.sh` (OpenRC `supervise-daemon`, dedicated user,
+  `need net`, logs) and `scripts/deploy-init-ubuntu.sh` (systemd `Type=simple`,
+  `Restart=on-failure`, hardening, journald).
+- Host-key verification is never disabled and the local `.env` is never
+  uploaded. `init` generates the three encryption/JWT secrets once.
+
+**Backups and restore (006D)**
+
+- `scripts/backup.sh` uses SQLite's online backup API for both databases,
+  integrity-checks each copy, writes a timestamped archive with manifest and
+  checksum, and applies retention.
+- `scripts/restore.sh` verifies checksum and integrity, requires explicit
+  confirmation, moves current databases aside, restores both, fixes ownership,
+  optionally migrates and restarts, and optionally polls health.
+- `scripts/test-backup-restore.sh` proves the flow with real items, a settings
+  row and a pending queue job.
+
+**Validation and documentation (006E)**
+
+- `./scripts/ci.sh` now also runs the backup/restore self-test, deploy argument
+  validation, service-script syntax checks, package layout checks, a
+  create-item/restart/persist probe and an in-container backup.
+- Manual-only `release.yaml` prepared for native archives and a multi-arch GHCR
+  image. It is not triggered and pushes only when `publish_image` is explicitly
+  enabled.
+- `README.md`, `AGENTS.md`, `docs/SPEC.md`, `docs/ARCHITECTURE.md`,
+  `docs/DEPLOYMENT.md` and `docs/tasks/006-deployment.md` updated.
+
+### Decisions
+
+- **SPA stays on disk.** Loco 1.3.1's `embedded_assets` only discovers an
+  `assets/` directory, so embedding `frontend/dist` would require moving the
+  generated frontend layout. Every artifact ships `frontend/dist` and Loco's
+  static middleware serves it.
+- **glibc 2.31 baseline.** glibc binaries are built on Debian bullseye, not the
+  newest distribution, so they run on Ubuntu 20.04 and newer. This is documented
+  rather than discovered at runtime.
+- **One process.** `start --all` runs HTTP, worker and scheduler together. Split
+  processes remain supported but are not coordinated across replicas.
+- **Release symlink, not in-place edits.** Deploys never overwrite a running
+  release. `current` is repointed atomically and old releases stay for rollback.
+- **No automatic database downgrade.** A failed deploy rolls back the binary and
+  reports that a backup restore is required for schema rollback.
+- **Secrets are created once.** `init` generates `JWT_SECRET`,
+  `AI_ENCRYPTION_KEY` and `NOTIFICATION_ENCRYPTION_KEY` only when
+  `shared/.env` does not exist. Rotation is a deliberate operator action.
+- **CI stays Docker-first.** The new checks run in the same containers as the
+  rest of the pipeline; no host toolchain is assumed.
+
+### Validation
+
+`./scripts/ci.sh` passes end to end. It covers:
+
+```text
+cargo fmt --check, clippy -D warnings, 185 Rust tests
+clean SQLite migration
+backup/restore self-test with real rows and a queue job
+deploy argument validation and service-script syntax
+distribution package layout check
+frontend typecheck, lint, 36 Vitest tests, production build
+production image health, worker/scheduler banner
+create item -> restart container -> item still present
+in-container SQLite backup
+11 Playwright smoke tests
+```
+
+### Measurements
+
+Taken on macOS 26.3.1, Apple M2, 16 GiB RAM, Docker 29.2.1, Rust 1.100.0 on
+the host (1.98 in the Linux toolchain images) and SQLite 3.51.0. Sizes are the
+bytes reported by `wc -c` and `docker images`; latency is a 50-request `curl`
+average against a locally running production process.
+
+**Release binaries and archives** (all six built successfully; SHA-256 sidecars
+are written next to each archive):
+
+| Target | Binary | Archive | SHA-256 (first 12) |
+|---|---:|---:|---|
+| `aarch64-apple-darwin` | 17,781,328 | 7,977,539 | `01790d12a496` |
+| `x86_64-apple-darwin` | 19,012,152 | 8,514,514 | `a2d8311a10b1` |
+| `aarch64-unknown-linux-musl` | 17,799,048 | 8,257,829 | `c58cf843ddaf` |
+| `aarch64-unknown-linux-gnu` | 19,028,496 | 8,298,059 | `c5063699a6d1` |
+| `x86_64-unknown-linux-musl` | 21,460,880 | 8,984,545 | `4cb4b37478c3` |
+| `x86_64-unknown-linux-gnu` | 21,145,712 | 8,770,008 | `3fad5c1f599c` |
+
+The Linux binaries are 17–20 MiB and the archives 7.6–8.6 MiB; each archive
+contains the binary, config, built SPA, operational scripts and docs.
+
+**Docker image** (`linux/arm64`, `braindrop-ci-app:latest`): ~190 MB on disk,
+~42.8 MB as `docker save | gzip -1`, with a 19,110,512-byte stripped binary.
+The image contains no compiler, Node.js or pnpm and runs as uid 10001.
+
+**Startup and idle memory** (`start --all`, worker and scheduler confirmed in
+every run):
+
+| Runtime | Limit | Startup to `/_health` | Idle RSS | `/_health` avg | `/` avg |
+|---|---:|---:|---:|---:|---:|
+| macOS ARM64 package, host | — | 0.72 s | 27,792 KB | 0.41 ms | 0.48 ms |
+| Docker image, arm64 | 128 MiB | 1.93 s | 13.72 MiB | 14.26 ms | — |
+| Docker image, arm64 | 256 MiB | 1.91 s | 12.39 MiB | 2.09 ms | — |
+| musl ARM64 package on Alpine 3.20 | 128 MiB | 0.26 s | 22.09 MiB | 2.08 ms | 3.12 ms |
+| musl ARM64 package on Alpine 3.20 | 256 MiB | 0.23 s | 21.95 MiB | 2.08 ms | 3.12 ms |
+
+The two Docker image latency figures were captured while cross-compilation was
+running on the same host; the 14.26 ms value reflects that contention. Every
+run boots the server, worker and scheduler, serves the SPA root and a deep link
+(`/dashboard`), and passes migrations. Both 128 MiB and 256 MiB limits are
+comfortable: the process settles at roughly 12–22 MiB RSS. A 128 MiB limit is
+therefore sufficient for an idle single-replica install, with headroom for
+request spikes; it is not a guarantee under sustained concurrent load.
+
+**Executed here** (production config, temporary databases, no external
+services): the macOS ARM64 package on the host, the `linux/arm64` Docker image,
+and the musl ARM64 package inside `alpine:3.20`. **Cross-compiled but not
+executed here**: macOS AMD64 (no Rosetta), both Linux AMD64 binaries (no amd64
+runtime on this host) and the glibc ARM64 binary. Those paths are built,
+packaged, checksummed and layout-checked, but only the three runtimes above
+have been booted.
+
+### Blockers
+
+None.
+
+### Known limitations
+
+- No SSH deployment was executed against a real host, and no Alpine/Ubuntu
+  service was booted on a real machine. Those paths are implemented, validated
+  for syntax and arguments, and documented, but require an authorized target.
+- AMD64 artefacts were cross-compiled on an Apple Silicon host, so their Linux
+  toolchains ran under QEMU. They are correct but slower to produce (about
+  2–5 minutes per target) than the native ARM64 and macOS builds.
+- TierHive platform capabilities were not probed. The flow assumes SSH, `sh`,
+  `tar`, `curl`, `sqlite3`/`sqlite` and `openssl`; `deploy-init` reports which
+  service manager it finds.
+- Publishing to GHCR and creating a GitHub release are prepared but disabled.
+- Single replica only; SQLite remains single-writer.
+- The queue database is recoverable but not transactional with the application
+  database. A backup captures them sequentially.
+
 ## Next task
 
-**006 — Deployment.** See `docs/tasks/006-deployment.md`.
+**007 — Release.** See `docs/tasks/007-release.md`.

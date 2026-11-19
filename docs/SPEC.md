@@ -377,8 +377,8 @@ Provide:
 - .env.example
 - Docker-first local CI (`docker-compose.ci.yml`, `scripts/ci.sh`)
 - GitHub Actions CI (manual `workflow_dispatch` only for now)
-- GitHub Container Registry publishing
-- TierHive-compatible SSH deployment template
+- Native release binaries and distribution archives
+- TierHive-compatible SSH deployment
 - Backup and restore scripts
 - Production deployment documentation
 
@@ -399,6 +399,18 @@ TierHive-specific SSH commands and platform capabilities must be verified before
 Do not guess deployment credentials or execute production deployment without authorization.
 
 Support safe SQLite backups using a consistent database backup mechanism.
+
+Deployment must also work without Docker on the target. Native builds cover
+`x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`,
+`x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
+`aarch64-apple-darwin` and `x86_64-apple-darwin`. Distribution archives contain
+the binary, `config/`, `frontend/dist`, operational scripts and documentation,
+never a database or a real `.env`.
+
+The SSH flow uses only `ssh` and `scp`, keeps host-key verification enabled,
+stages uploads, activates releases atomically, preserves `shared/.env` and data,
+health-checks after restart and retains previous releases for rollback without
+downgrading the database.
 
 Local CI is Docker-first. One command, `./scripts/ci.sh`, builds the CI and
 production images from `docker-compose.ci.yml` and runs the complete validation
@@ -446,6 +458,10 @@ Deployment:
 - Multi-stage production Docker image build
 - Application start with a disposable database
 - `/_health` check and a seeded administrator login
+- Create-item / container-restart persistence probe
+- In-container SQLite backup
+- Backup/restore self-test, deploy argument validation, service-script syntax
+  and distribution package layout checks
 
 Test authorization, cross-user isolation, AI parsing, notification delivery, scheduler deduplication, restart recovery and disabled public registration.
 

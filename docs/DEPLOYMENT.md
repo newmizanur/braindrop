@@ -1,231 +1,494 @@
 # BrainDrop Deployment
 
-> **Status: partly implemented.** The production multi-stage image and the
-> Docker-first local CI pipeline exist as of milestone 2. Deployment Compose,
-> GHCR publishing, backup scripts and the TierHive template are implemented in
-> milestone 6. This document describes the target deployment contract so earlier
-> milestones do not make decisions that block it.
+BrainDrop ships as one process and one SQLite database. This document covers the
+three supported ways to run it in production:
 
-## 1. Target
+| Option | Best for | Runtime dependencies on the host |
+|---|---|---|
+| Docker Compose | Most self-hosted installs | Docker + Compose |
+| Native binary (Alpine / Ubuntu) | Small VPS, no container runtime | libc (glibc or musl), `sqlite3`, `curl` |
+| SSH deployment (`make deploy-*`) | Repeatable updates over SSH | `ssh`/`scp` on the workstation; no Docker, Rust, Node.js or `rsync` on the server |
 
-- One BrainDrop application replica.
-- One SQLite application database on a persistent volume.
-- One SQLite queue database on the same persistent volume.
-- Separate server, worker and scheduler processes (or `--all` in a single
-  container for small installations).
-- No Redis, PostgreSQL, Nginx or Node.js in the runtime image.
-- TLS terminated by the platform or a reverse proxy in front of BrainDrop.
+All three run the same release binary, the same `config/production.yaml` and the
+same `frontend/dist`. There is no separate worker or scheduler container: Loco's
+`start --all` runs the HTTP server, the SQLite queue worker and the scheduler in
+one process.
 
-SQLite is a single-writer database. Do **not** run multiple application replicas
-against the same database or queue file.
+> **Single replica only.** SQLite is a single-writer database. Never point two
+> application processes at the same database or queue file. If you need more
+> throughput than one node provides, that is a different architecture, not a
+> second replica.
 
-## 2. Build and runtime model
-
-Multi-stage image (implemented in `Dockerfile`):
-
-1. **Frontend stage** — Node.js + pnpm: install from the frozen lockfile and
-   build into `frontend/dist`.
-2. **Rust build stage** — Rust stable: build the release binary with the frontend
-   assets available. Loco refuses to boot without `frontend/dist`.
-3. **Runtime stage** — Debian slim with the binary, `frontend/dist`, `config/`
-   and CA certificates. Non-root user. No compiler, Node.js, pnpm or source
-   tree.
-
-The image declares a health check against `/_health`. CI starts it with a
-disposable SQLite database, creates an administrator with `admin:create`, and
-runs Playwright against it.
-
-The runtime command is the Loco binary. Run modes:
+## 1. What runs
 
 ```sh
-braindrop-cli start                 # HTTP server + static SPA
-braindrop-cli start --worker        # queue worker
-braindrop-cli start --scheduler     # scheduled scans
-braindrop-cli start --all           # all three in one process
+braindrop start --all        # HTTP + static SPA + queue worker + scheduler
+braindrop start --worker     # worker only (split deployments)
+braindrop start --scheduler  # scheduler only (split deployments)
+braindrop db migrate         # apply migrations once, as a release step
 ```
 
-The production image and Docker CI use `start --all`, so the HTTP server, queue
-worker and scheduler all boot from one process for the single-replica
-deployment. The banner must report `worker is online` and `scheduler is
-running`; CI fails if either mode is missing. Split processes remain supported
-for larger deployments that share the same SQLite volume.
-
-## 3. Required environment
-
-```env
-# Runtime
-PORT=5150
-BINDING=0.0.0.0
-HOST=https://braindrop.example.com
-RUST_LOG=info
-
-# Database and queue (persistent volume)
-DATABASE_URL=sqlite:///data/braindrop.sqlite?mode=rwc
-QUEUE_URL=sqlite:///data/braindrop_queue.sqlite?mode=rwc
-
-# Auth
-# JWT_SECRET must be base64: Loco decodes it before signing.
-# Generate one with `openssl rand -base64 32`.
-JWT_SECRET=<base64 secret>
-ALLOW_REGISTRATION=false
-REQUIRE_EMAIL_VERIFICATION=false
-
-# Mail (verification / password reset)
-MAILER_HOST=smtp.example.com
-MAILER_PORT=587
-MAILER_USER=...
-MAILER_PASSWORD=...
-
-# Optional AI (leave disabled/empty for a manual-only installation)
-AI_ENABLED=false
-OPENROUTER_API_KEY=
-OPENROUTER_MODEL=
-OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-AI_TIMEOUT_SECONDS=30
-AI_MAX_INPUT_CHARS=8000
-AI_RATE_LIMIT_PER_MINUTE=10
-# Required only for per-user (BYOK) keys. Generate with `openssl rand -base64 32`
-# and keep it stable; rotating it makes stored personal keys unreadable.
-AI_ENCRYPTION_KEY=
-
-# Optional notifications (leave disabled/empty for no delivery)
-# Falls back to AI_ENCRYPTION_KEY when empty. Generate with `openssl rand -base64 32`.
-NOTIFICATION_ENCRYPTION_KEY=
-NOTIFICATION_TIMEOUT_SECONDS=10
-NOTIFICATION_MAX_ATTEMPTS=5
-NOTIFICATION_RETRY_BASE_SECONDS=30
-NOTIFICATION_RETRY_MAX_SECONDS=3600
-NOTIFICATION_HISTORY_RETENTION_DAYS=30
-NOTIFICATION_TEST_RATE_LIMIT=5
-```
-
-Production config deliberately has no defaults for `DATABASE_URL`,
-`QUEUE_URL`, `JWT_SECRET`, `HOST` or mailer credentials. The app refuses to boot
-if they are missing.
-
-Never commit a real `.env`. Ship `.env.example` with placeholders only.
-
-## 4. Persistent volume
-
-Mount a single volume at `/data` (or an equivalent path) and keep both SQLite
-files there, including WAL/SHM sidecars:
+Runtime files:
 
 ```text
-/data/braindrop.sqlite
-/data/braindrop.sqlite-wal
-/data/braindrop.sqlite-shm
-/data/braindrop_queue.sqlite
-/data/braindrop_queue.sqlite-wal
-/data/braindrop_queue.sqlite-shm
+braindrop                     release binary (renamed from braindrop-cli)
+config/production.yaml        production configuration
+frontend/dist/                built SPA (served by Loco's static middleware)
+scripts/backup.sh             consistent SQLite backup
+scripts/restore.sh            restore with confirmation
+.env.example                  placeholder configuration
 ```
 
-The container runs as a non-root user; the volume must be writable by that uid.
+Mail templates are compiled into the binary with `include_dir!`. No source tree,
+Node.js, pnpm, Rust toolchain, Redis or PostgreSQL is needed at runtime.
 
-## 5. Health and monitoring
+The SPA is served from `frontend/dist` on disk, not embedded in the binary. This
+is deliberate: Loco 1.3.1's `embedded_assets` build only discovers an `assets/`
+directory, and moving the SPA there would fight the generated frontend layout.
+Keeping `frontend/dist` alongside the binary is the supported path and is what
+every distribution archive contains.
 
-Loco provides:
+## 2. Docker Compose
 
-- `GET /_ping` — liveness
-- `GET /_health` — health
-- `GET /_readiness` — readiness
-
-Use `/_health` for container health checks and `/_readiness` for traffic
-readiness. Do not expose these as the only auth boundary; they are monitoring
-endpoints, not application data.
-
-## 6. Backups
-
-SQLite must be backed up with a consistent mechanism, not by copying a live file
-while writes are in flight.
-
-Target approach (milestone 6):
+The repository root has a production `docker-compose.yml` and a separate
+`docker-compose.ci.yml`. Only the former is for real deployments.
 
 ```sh
-# Online backup into a temporary file, then compress and move off-host.
-sqlite3 /data/braindrop.sqlite ".backup '/data/backups/braindrop-$(date -u +%Y%m%dT%H%M%SZ).sqlite'"
+cp .env.example .env
+# edit .env: set JWT_SECRET, HOST, and any optional integrations
+docker compose up -d
+docker compose ps
+curl -fsS http://localhost:5150/_health
 ```
 
-- Use SQLite's `.backup` (online backup API), not `cp`, for a live database.
-- Back up the queue database only if in-flight jobs must be preserved; delivery
-  state is recoverable from the application tables.
-- Verify the backup with `PRAGMA integrity_check`.
-- Encrypt backups at rest and store them outside the application volume.
-- Document retention and restore drills.
+What the Compose file gives you:
+
+- one `app` service built from the multi-stage `Dockerfile`;
+- `env_file: .env` — the container never reads a `.env` baked into the image;
+- a named volume `braindrop-data` mounted at `/data` for the application
+  database, the queue database and their WAL/SHM sidecars;
+- the host port and the container port both taken from `PORT`, so `HOST`, the
+  health check and a reverse proxy cannot disagree;
+- `restart: unless-stopped`, `init: true` and a 30-second stop grace period so
+  Loco's SIGTERM handler can drain the worker and scheduler;
+- a health check against `/_health`.
+
+The image is multi-stage:
+
+1. `node:22-bookworm-slim` + pnpm builds `frontend/dist` from the frozen
+   lockfile.
+2. `rust:1-bookworm` builds `braindrop-cli` in release mode.
+3. `debian:bookworm-slim` runs as the unprivileged user `braindrop` (uid 10001)
+   with `ca-certificates`, `curl`, `sqlite3`, `tar`, `gzip` and `findutils`.
+   There is no compiler, Node.js or pnpm in the final image.
+
+Build for another architecture with BuildKit:
+
+```sh
+docker buildx build --platform linux/amd64 -t braindrop:amd64 .
+docker buildx build --platform linux/arm64 -t braindrop:arm64 .
+```
+
+Upgrade:
+
+```sh
+docker compose pull          # when using a published image
+docker compose up -d         # rebuilds if you build locally
+docker compose logs -f app
+```
+
+`docker compose down` keeps the named volume. `docker compose down -v` deletes
+your data.
+
+### Running backups in the container
+
+```sh
+docker compose exec app scripts/backup.sh
+docker compose exec app ls -l /data/backups
+```
+
+The image contains `sqlite3`, so the backup script uses the online backup API
+rather than copying a live file.
+
+## 3. Native binaries
+
+Six release targets are supported:
+
+| Target | Platform name in `dist/` | Typical host |
+|---|---|---|
+| `x86_64-unknown-linux-musl` | `linux-amd64-musl` | Alpine AMD64 |
+| `aarch64-unknown-linux-musl` | `linux-arm64-musl` | Alpine ARM64 |
+| `x86_64-unknown-linux-gnu` | `linux-amd64-glibc` | Ubuntu AMD64 |
+| `aarch64-unknown-linux-gnu` | `linux-arm64-glibc` | Ubuntu ARM64 |
+| `aarch64-apple-darwin` | `macos-arm64` | Apple Silicon macOS |
+| `x86_64-apple-darwin` | `macos-amd64` | Intel macOS |
+
+Build with Docker (no Linux toolchain on the workstation):
+
+```sh
+make build-alpine-amd64     # x86_64-unknown-linux-musl
+make build-alpine-arm64     # aarch64-unknown-linux-musl
+make build-linux-amd64      # x86_64-unknown-linux-gnu
+make build-linux-arm64      # aarch64-unknown-linux-gnu
+make build-mac              # both macOS targets, built natively
+make build-all              # all six
+```
+
+The glibc builds use a `rust:1-bullseye` image on purpose: the glibc baseline is
+2.31, which covers Ubuntu 20.04 and newer. Building on a newer distribution would
+silently raise the minimum glibc version. Building an amd64 image on an Apple
+Silicon host runs the compiler under QEMU and is slow but correct.
+
+The toolchain image installs nothing. `rust:1-bullseye` already ships `cc`,
+`pkg-config` and a CA bundle, and Debian 11 has moved to archive.debian.org, so an
+`apt-get update` would fail. No system library is required: SQLite is bundled,
+TLS is rustls and there is no OpenSSL dependency.
+
+Package one target into a self-contained directory and archive:
+
+```sh
+./scripts/build-native.sh x86_64-unknown-linux-musl
+./scripts/package.sh x86_64-unknown-linux-musl
+```
+
+Result:
+
+```text
+dist/braindrop-linux-amd64-musl/
+  braindrop
+  config/production.yaml
+  frontend/dist/
+  scripts/backup.sh
+  scripts/restore.sh
+  scripts/test-backup-restore.sh
+  scripts/deploy-init-alpine.sh
+  scripts/deploy-init-ubuntu.sh
+  .env.example
+  README.md
+  DEPLOYMENT.md
+  LICENSE
+  RELEASE
+dist/braindrop-linux-amd64-musl.tar.gz
+dist/braindrop-linux-amd64-musl.tar.gz.sha256
+```
+
+The archive never contains a database, a real `.env`, `node_modules`, source or
+build output. `scripts/package.sh --check <dir>` verifies the layout.
+
+### Installing by hand on Alpine (OpenRC)
+
+```sh
+apk add ca-certificates curl openssl sqlite tzdata
+tar -xzf braindrop-linux-amd64-musl.tar.gz -C /opt
+ln -s /opt/braindrop-linux-amd64-musl /opt/braindrop
+mkdir -p /opt/braindrop/shared/{data,backups,logs}
+cp /opt/braindrop/.env.example /opt/braindrop/shared/.env
+# edit shared/.env: DATABASE_URL/QUEUE_URL point at shared/data
+# and generate JWT_SECRET, AI_ENCRYPTION_KEY, NOTIFICATION_ENCRYPTION_KEY
+/opt/braindrop/scripts/deploy-init-alpine.sh
+```
+
+### Installing by hand on Ubuntu (systemd)
+
+```sh
+apt-get install -y ca-certificates curl openssl sqlite3 tzdata
+tar -xzf braindrop-linux-amd64-glibc.tar.gz -C /opt
+ln -s /opt/braindrop-linux-amd64-glibc /opt/braindrop
+mkdir -p /opt/braindrop/shared/{data,backups,logs}
+cp /opt/braindrop/.env.example /opt/braindrop/shared/.env
+# edit shared/.env
+/opt/braindrop/scripts/deploy-init-ubuntu.sh
+```
+
+Both installers are idempotent. They create a dedicated unprivileged
+`braindrop` user, set ownership and permissions on `shared/`, and install a
+service definition:
+
+- **Alpine**: `/etc/init.d/braindrop` using `supervise-daemon`, `respawn_delay=5`,
+  `need net`, logs in `shared/logs/`.
+- **Ubuntu**: `/etc/systemd/system/braindrop.service` with `Type=simple`,
+  `Restart=on-failure`, `RestartSec=5`, `TimeoutStopSec=30` and hardening
+  (`NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=strict`,
+  `ReadWritePaths=/opt/braindrop/shared`, ...). Logs go to journald.
+
+Neither installer disables host security features and neither writes secrets
+into the unit file: both read `shared/.env`.
+
+## 4. SSH deployment
+
+`make deploy-*` and `scripts/deploy.sh` implement a release-based deployment
+over plain `ssh` and `scp`. They do not use `rsync`, Docker or a compiler on the
+server, and they never disable SSH host-key verification.
+
+Remote layout:
+
+```text
+/opt/braindrop/
+  current -> releases/<release-id>/
+  releases/<release-id>/          immutable unpacked release
+  shared/.env                     created once, preserved forever
+  shared/data/                    application + queue SQLite and sidecars
+  shared/backups/                 archives from scripts/backup.sh
+  shared/logs/                    Alpine service logs
+```
+
+First install:
+
+```sh
+make deploy-init \
+  SSH_HOST=server.example.com SSH_USER=root \
+  OS=alpine ARCH=amd64
+```
+
+This builds and packages the matching target, uploads it, creates
+`shared/.env` from `.env.example` with `DATABASE_URL`/`QUEUE_URL` rewritten to
+`shared/data`, generates `JWT_SECRET`, `AI_ENCRYPTION_KEY` and
+`NOTIFICATION_ENCRYPTION_KEY` with `openssl rand -base64 32`, activates the
+release, installs the service and waits for `/_health`. It then tells you to
+review `shared/.env` (in particular `HOST`) before exposing the service.
+
+Routine update:
+
+```sh
+make deploy-linux \
+  SSH_HOST=server.example.com SSH_USER=deploy \
+  OS=ubuntu ARCH=arm64
+```
+
+The deploy action uploads to a staging directory, extracts there, runs
+migrations as the service user, atomically repoints `current`, restarts the
+service and polls `/_health`. If the health check fails it repoints `current`
+back to the previous release and restarts. **The database is not rolled back**;
+a failed migration needs a backup restore, not a symlink flip.
+
+Other targets:
+
+```sh
+make deploy-files    # upload without activating
+make deploy-restart  # restart and health-check
+make deploy-status   # current release, service state, health
+make deploy-logs     # journalctl / tail -f shared/logs/braindrop.log
+make deploy-stop
+make deploy-backup   # run scripts/backup.sh as the service user
+make deploy-rollback # activate the previous release (no DB downgrade)
+```
+
+Variables (all overridable on the command line or via the environment):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `SSH_HOST` | — | hostname or IP, required |
+| `SSH_PORT` | `22` | SSH port |
+| `SSH_USER` | `root` | SSH user; `REMOTE_SUDO` defaults to `sudo` for non-root |
+| `SSH_IDENTITY` | — | optional private key |
+| `REMOTE_DIR` | `/opt/braindrop` | remote root |
+| `OS` | `alpine` | `alpine` or `ubuntu` |
+| `ARCH` | `amd64` | `amd64` or `arm64` |
+| `SERVICE` | `braindrop` | service name |
+| `SERVICE_USER` | `braindrop` | unprivileged runtime user |
+| `APP_PORT` | `5150` | port used for the remote health check |
+| `KEEP_RELEASES` | `3` | old releases to keep |
+| `SKIP_BUILD` | `0` | reuse an existing `dist/` archive |
+| `AUTO_ROLLBACK` | `1` | roll back on a failed health check |
+| `GENERATE_SECRETS` | `1` | generate secrets during `init` |
+
+Validate arguments without touching a server:
+
+```sh
+SSH_HOST=server.example.com SSH_USER=deploy OS=ubuntu ARCH=arm64 \
+  ./scripts/deploy.sh validate
+```
+
+The script rejects empty or unsafe values, unsupported OS/architecture
+combinations, out-of-range ports and an empty `KEEP_RELEASES`.
+
+### TierHive compatibility
+
+TierHive-style hosts are supported through the same path: any host where you
+have SSH access, `sh`, `tar`, `curl`, `sqlite3`/`sqlite` and `openssl` works.
+Use `SSH_USER=root` (or a user with `sudo`) for `deploy-init`, then a
+non-root deploy user for updates if the platform supports it. The deployment
+does not assume a container runtime, `systemd` or OpenRC until the init script
+is run, and it reports which service manager it found. No platform-specific
+hostname, key or capability is guessed: verify them on the target first.
+
+## 5. Configuration
+
+Start from [`.env.example`](../.env.example). It is placeholder-only.
+
+Required in production:
+
+| Variable | Notes |
+|---|---|
+| `DATABASE_URL` | `sqlite:///data/braindrop.sqlite?mode=rwc` in Docker, `sqlite:///opt/braindrop/shared/data/braindrop.sqlite?mode=rwc` natively |
+| `QUEUE_URL` | same shape, separate file |
+| `JWT_SECRET` | base64; Loco decodes it before signing. `openssl rand -base64 32` |
+| `HOST` | public HTTPS origin used in outgoing mail links |
+
+Optional:
+
+- `PORT`, `BINDING`, `LOG_LEVEL`, `DB_AUTO_MIGRATE`, `DB_MAX_CONNECTIONS`
+- `ALLOW_REGISTRATION`, `REQUIRE_EMAIL_VERIFICATION`
+- `MAILER_ENABLED`, `MAILER_HOST`, `MAILER_PORT`, `MAILER_SECURE`,
+  `MAILER_USER`, `MAILER_PASSWORD`
+- `AI_ENABLED`, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`,
+  `OPENROUTER_BASE_URL`, `AI_TIMEOUT_SECONDS`, `AI_MAX_INPUT_CHARS`,
+  `AI_RATE_LIMIT_PER_MINUTE`, `AI_ENCRYPTION_KEY`
+- `NOTIFICATION_ENCRYPTION_KEY` and the notification retry/retention settings
+
+Mail is **disabled by default**. A manual-only install with registration off
+boots without SMTP. Set `MAILER_ENABLED=true` before enabling email verification,
+password reset or magic links.
+
+`AI_ENCRYPTION_KEY` and `NOTIFICATION_ENCRYPTION_KEY` are long-lived secrets:
+
+- they must be set once and backed up;
+- rotating them makes stored personal OpenRouter keys and Telegram/Discord
+  credentials unreadable;
+- the deployment scripts generate them only when `shared/.env` is created and
+  never overwrite an existing file.
+
+TLS is terminated outside the application: by a reverse proxy, the platform's
+load balancer, or Docker's host proxy. BrainDrop does not manage certificates.
+
+## 6. Database, queue and migrations
+
+Both databases live on the same persistent volume:
+
+```text
+braindrop.sqlite        application data
+braindrop_queue.sqlite   Loco queue
+*-wal, *-shm             SQLite sidecars
+```
+
+- `DB_AUTO_MIGRATE=true` is convenient for a single-node install: the app
+  migrates on boot.
+- For the SSH release flow, migrations also run explicitly as a release step
+  before the new release is activated. If you prefer strict control, set
+  `DB_AUTO_MIGRATE=false` and keep using `braindrop db migrate`.
+- Never run two migrating processes against the same SQLite file.
+
+The queue holds notification deliveries. Delivery rows are written to the
+application database before a job is enqueued, and a recovery scan requeues
+pending or abandoned deliveries after a restart, so losing the queue file is
+recoverable. Back it up anyway if you want in-flight jobs preserved exactly.
+
+## 7. Backups and restore
+
+```sh
+# Docker
+docker compose exec app scripts/backup.sh
+
+# Native / SSH
+make deploy-backup SSH_HOST=... SSH_USER=...
+```
+
+`scripts/backup.sh`:
+
+- uses SQLite's online backup API (`.backup`) for both databases — never `cp`
+  on a live file;
+- runs `PRAGMA integrity_check` on every copy;
+- writes a timestamped `braindrop-backup-<UTC>.tar.gz` with a manifest and a
+  `.sha256` sidecar;
+- applies `RETENTION_DAYS` (default 30);
+- optionally includes `.env` with `INCLUDE_ENV=1` (contains secrets; encrypt the
+  archive at rest).
 
 Restore:
 
-1. Stop server, worker and scheduler.
-2. Move the current database aside (do not delete it).
-3. Restore the selected backup to `DATABASE_URL`.
-4. Run `braindrop-cli db migrate` if the backup predates the current release.
-5. Start the app and verify `/_health`, login and item counts.
+```sh
+./scripts/restore.sh /path/to/braindrop-backup-<UTC>.tar.gz
+# type RESTORE to confirm
+```
 
-## 7. Migrations
+`scripts/restore.sh`:
 
-- Development and small single-instance deployments: `auto_migrate: true`.
-- Multiple processes/releases: run migrations once as a release step with
-  `braindrop-cli db migrate`, then start the app with auto-migrate disabled.
-- Never run two migrating processes against the same SQLite file concurrently.
+- verifies the archive checksum and database integrity;
+- refuses to run without an explicit confirmation (or `--yes` for automation);
+- stops the service, moves the current databases aside into
+  `restore-previous-<UTC>/` instead of deleting them;
+- restores both databases, fixes ownership, optionally runs migrations
+  (`RUN_MIGRATIONS=1 APP_BIN=...`) and restarts the service;
+- optionally polls `HEALTH_URL`.
 
-## 8. CI and image publishing
+The repository self-tests this flow with real rows:
 
-Docker-first local CI is implemented (milestone 2):
+```sh
+./scripts/test-backup-restore.sh
+```
 
-- `./scripts/ci.sh` builds `docker-compose.ci.yml` and the production image.
-- It runs Rust fmt/clippy/tests and a throwaway SQLite migration, frontend
-  typecheck/lint/Vitest/build, a production-image health check with a seeded
-  login, and Playwright smoke tests.
-- Cargo caches live in named Docker volumes and the pnpm store in a BuildKit
-  cache mount; no development or
-  production database is mounted.
+Restore drills matter: a backup that has never been restored is a hypothesis.
 
-`.github/workflows/ci.yaml` is manual-only (`workflow_dispatch`) and calls
-`./scripts/ci.sh`. It has no Redis, PostgreSQL or npm steps. Automatic runs stay
-disabled until explicitly re-enabled.
+## 8. Upgrades and rollback
 
-Milestone 6 adds publishing:
+Docker:
 
-- Tag/main builds publish `ghcr.io/<owner>/braindrop:<tag>` using
-  `GITHUB_TOKEN`.
+1. `docker compose exec app scripts/backup.sh`
+2. pull or rebuild the image
+3. `docker compose up -d`
+4. verify `/_health`, login, item list, one notification test
 
-CI must not require real OpenRouter, Telegram, Discord or SMTP credentials.
+Native/SSH:
 
-## 9. TierHive / SSH deployment template
+1. `make deploy-backup`
+2. `make deploy-linux` (or `deploy-files` then `deploy-linux` with `SKIP_BUILD=1`)
+3. the script migrates, activates, restarts and health-checks
+4. on failure it automatically repoints `current` to the previous release
 
-The template will be added in milestone 6 and must be verified against the
-actual TierHive platform before activation. It should:
+`make deploy-rollback` switches to the previous release. It does **not**
+downgrade the database. If the new release migrated the schema in a
+non-backward-compatible way, restore the matching backup.
 
-- build or pull an immutable image tag;
-- copy `.env` from a secret store, never from the repository;
-- create/attach the persistent volume;
-- run migrations as a one-shot step;
-- start server, worker and scheduler;
-- health-check `/_health`;
-- keep the previous image for rollback.
+Old releases beyond `KEEP_RELEASES` are pruned; the active release is never
+pruned.
 
-Do not guess hostnames, SSH users, keys or platform capabilities. Do not execute a
-production deployment without explicit authorization.
+## 9. Health and observability
 
-## 10. Upgrade procedure
+- `GET /_ping` — liveness
+- `GET /_health` — health (used by Docker, systemd health checks and deploy.sh)
+- `GET /_readiness` — readiness
 
-1. Back up the database.
-2. Pull the new image.
-3. Run migrations (one process).
-4. Restart server, worker and scheduler.
-5. Verify health, login, item list and a test notification.
-6. Keep the previous image available for rollback.
+Startup logs must contain `worker is online` and `scheduler is running`.
+CI fails the build if either is missing, so a server-only start cannot silently
+disable reminders and scheduled scans.
 
-## 11. Security checklist
+Logs:
 
-- [ ] TLS enabled in front of the app
-- [ ] Strong `JWT_SECRET` and `NOTIFICATION_ENCRYPTION_KEY`
-- [ ] Public registration disabled unless intended
-- [ ] Email verification policy chosen
-- [ ] SMTP credentials supplied via secrets
-- [ ] AI key optional; feature disabled when absent
-- [ ] `AI_ENCRYPTION_KEY` set and backed up if personal AI keys are allowed
-- [ ] Telegram/Discord credentials encrypted at rest
-- [ ] Volume permissions restricted to the runtime user
-- [ ] Backups encrypted and tested
+- Docker: `docker compose logs -f app`
+- Alpine: `shared/logs/braindrop.log` and `shared/logs/braindrop.err.log`
+- Ubuntu: `journalctl -u braindrop -f`
+
+## 10. Security checklist
+
+- [ ] TLS in front of the app, `HOST` set to the public HTTPS origin
+- [ ] `JWT_SECRET` generated with `openssl rand -base64 32` and backed up
+- [ ] `AI_ENCRYPTION_KEY` / `NOTIFICATION_ENCRYPTION_KEY` set once and backed up
+- [ ] `ALLOW_REGISTRATION=false` unless public sign-up is intended
+- [ ] Mailer enabled only when needed; SMTP credentials supplied via `.env`
+- [ ] AI disabled or given a server key; per-user keys need an encryption key
+- [ ] `shared/.env` mode `600`, owned by the service user
+- [ ] Volume/database directories writable only by the service user
+- [ ] SSH host-key verification left on; use `known_hosts`, not `StrictHostKeyChecking=no`
+- [ ] Backups encrypted at rest and restore-tested
+- [ ] One replica only
 - [ ] Logs contain no secrets or tokens
-- [ ] Single replica only
+
+## 11. Validation status
+
+What the project actually verifies today:
+
+- **Docker**: `./scripts/ci.sh` builds the production image, starts it with
+  `start --all`, checks `/_health`, the SPA and a deep link, creates an item,
+  restarts the container, confirms the item survived, and runs an in-container
+  backup.
+- **Backup/restore**: `scripts/test-backup-restore.sh` runs in CI against real
+  SQLite files with items, settings and a pending queue job.
+- **Deploy scripts**: argument validation and shell syntax checks run in CI.
+- **Native targets**: cross-compiled with the documented toolchains and packaged
+  with checksums. The macOS binaries are executed on the build host; Linux
+  binaries are built in Linux containers and inspected, but the full native
+  service flow is not exercised by CI.
+
+Not verified automatically: an actual SSH deployment to a remote host, an actual
+Alpine/Ubuntu boot of the init scripts, and TierHive platform behaviour. Those
+require an authorized target and are documented rather than claimed.

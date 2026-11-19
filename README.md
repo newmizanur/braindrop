@@ -13,8 +13,8 @@ service.
 ## Status
 
 BrainDrop is under active development. **Milestones 1 (bootstrap), 2 (auth and
-shell hardening), 3 (items and settings), 4 (AI capture) and 5 (notifications)
-are complete**; the application is not production-ready yet.
+shell hardening), 3 (items and settings), 4 (AI capture), 5 (notifications) and
+6 (deployment and distribution) are complete**; release hardening remains.
 
 | Area | State |
 |---|---|
@@ -25,7 +25,8 @@ are complete**; the application is not production-ready yet.
 | Items, settings, dashboard stats | Working |
 | Optional OpenRouter capture parser | Working — server key or encrypted per-user key |
 | Telegram / Discord notifications | Working — opt-in reminders, daily digest and overdue summaries |
-| Full deployment compose, publishing, backups | Planned — milestone 6 |
+| Docker Compose deployment and backups | Working — production image, persistent volume, health check |
+| Native binaries and SSH deployment | Working — six targets, Makefile, Alpine/Ubuntu services |
 | Release hardening | Planned — milestone 7 |
 
 See [`docs/PROGRESS.md`](docs/PROGRESS.md) for the current milestone and
@@ -184,17 +185,51 @@ delivery lifecycle.
 | `pnpm --dir frontend test` | Vitest |
 | `pnpm --dir frontend exec playwright test` | Playwright smoke tests |
 | `./scripts/ci.sh` | Run the complete Docker CI pipeline |
+| `make help` | List build, packaging and deployment targets |
+| `make build-all` | Build all six native release targets |
+| `make deploy-init` / `make deploy-linux` | First install / update over SSH |
+
+## Deployment
+
+Three supported paths, all running the same binary and configuration:
+
+```sh
+# Docker (most installs)
+cp .env.example .env       # set JWT_SECRET and HOST
+docker compose up -d
+
+# Native build and archive
+make build-alpine-amd64
+./scripts/package.sh x86_64-unknown-linux-musl
+
+# SSH release flow (no Docker or compiler on the server)
+make deploy-init  SSH_HOST=server.example.com SSH_USER=root OS=alpine
+make deploy-linux SSH_HOST=server.example.com SSH_USER=deploy OS=ubuntu ARCH=arm64
+```
+
+The runtime is one process (`start --all`) with one SQLite database and one
+SQLite queue on a persistent volume. Native targets are musl and glibc Linux
+(AMD64/ARM64) and macOS (Apple Silicon/Intel); Alpine/OpenRC and Ubuntu/systemd
+service installers are included. Backups use SQLite's online backup API and are
+restore-tested in CI.
+
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full contract, security
+checklist, upgrade/rollback flow and validation status.
 
 ## Continuous integration
 
 `./scripts/ci.sh` is the single validation entry point. It builds the CI and
 production images with `docker-compose.ci.yml` and runs, in order:
 
-1. Rust formatting, Clippy, tests and a clean SQLite migration.
+1. Rust formatting, Clippy, tests and a clean SQLite migration, plus the
+   backup/restore self-test, deploy argument validation and package layout
+   checks.
 2. Frontend type-check, lint, unit tests and production build.
 3. The production Docker image, including `/_health`, plus a log check that Loco
    started the HTTP server, worker and scheduler (`start --all`).
-4. Playwright smoke tests against that image.
+4. A persistence probe: create an item through the API, restart the container,
+   confirm the item survived, and run an in-container SQLite backup.
+5. Playwright smoke tests against that image.
 
 Cargo caches live in named Docker volumes and the pnpm store in a BuildKit cache
 mount, so repeated runs are fast. Test databases are created inside containers;
@@ -212,7 +247,9 @@ config/              development / test / production configuration
 frontend/            React + Mantine SPA (built into frontend/dist)
 tests/               Loco request, model, task and worker tests
 docker/ci/           Dockerfiles for the CI stages
-scripts/             CI and local E2E server scripts
+docker/native/       glibc release toolchain image
+scripts/             CI, build, package, deploy, backup and restore scripts
+Makefile             local, build, package and deploy entry points
 docs/                specification, architecture, progress, deployment, tasks
 ```
 

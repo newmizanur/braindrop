@@ -577,16 +577,29 @@ Milestone 2 added the production image and CI harness:
 - `.dockerignore`, `docker-compose.ci.yml`, `docker/ci/*.Dockerfile` and
   `scripts/ci.sh`.
 
-Milestone 6 still adds:
+Milestone 6 added:
 
 - `docker-compose.yml` for real deployments and `.env.example`.
-- Persistent volume wiring for both SQLite files.
-- GitHub Actions publishing to GHCR (the workflow exists but is manual-only).
-- TierHive-compatible SSH deployment template (verified before activation).
-- Backup/restore scripts using SQLite's online backup mechanism.
-- Production deployment documentation.
+- Persistent named volume for both SQLite files and their WAL/SHM sidecars.
+- `start --all` in the image: HTTP, queue worker and scheduler in one process.
+- Release profile tuning (`lto = "thin"`, `codegen-units = 1`, `strip`).
+- Six native release targets, `scripts/build-native.sh`, `scripts/package.sh`,
+  `dist/braindrop-<platform>/` plus `.tar.gz` and SHA-256 sidecars.
+- A documented `Makefile` and `scripts/deploy.sh` that uses only `ssh`/`scp`,
+  stages uploads, activates releases atomically and keeps `shared/.env` and data.
+- `scripts/deploy-init-alpine.sh` (OpenRC) and
+  `scripts/deploy-init-ubuntu.sh` (systemd), both with an unprivileged user.
+- `scripts/backup.sh` / `scripts/restore.sh` using SQLite's online backup API,
+  with integrity checks, retention and an explicit restore confirmation.
+- Deployment, persistence and backup checks inside `./scripts/ci.sh`.
+
+The SPA is served from `frontend/dist` on disk. Loco 1.3.1's `embedded_assets`
+only scans an `assets/` directory, so embedding would require moving the
+generated frontend layout; the supported artifact ships `frontend/dist`.
 
 Single replica for SQLite. Health checks use Loco's `/_health` and `/_readiness`.
+Publishing to GHCR remains prepared but disabled; GitHub Actions is manual-only
+and no release is published.
 
 ## 16. Decisions and deviations
 

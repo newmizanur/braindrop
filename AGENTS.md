@@ -112,6 +112,27 @@ BrainDrop is an open-source, lightweight, self-hostable personal inbox, task and
 - `docs/DEPLOYMENT.md`
 - `docs/tasks/`
 
+### Deployment and distribution
+
+Three supported paths share one binary and one `config/production.yaml`:
+
+- Docker Compose: `docker-compose.yml` (production) is separate from
+  `docker-compose.ci.yml` (tests only). The image runs `start --all`.
+- Native: `make build-alpine-*`, `make build-linux-*`, `make build-mac`, then
+  `./scripts/package.sh <rust-target>`. Archives land in `dist/` with SHA-256
+  sidecars.
+- SSH: `make deploy-init` / `make deploy-linux` / `make deploy-rollback` call
+  `scripts/deploy.sh`. It uses only `ssh` and `scp`; never add `rsync` or a
+  remote compiler, never disable host-key verification, never upload a local
+  `.env`, and never let a deploy regenerate an existing encryption key.
+
+SQLite backups must use the online backup API through `scripts/backup.sh`; never
+copy a live database with `cp`. Restores require explicit confirmation and keep
+the previous files.
+
+Do not deploy, push, publish images/archives or start a release without explicit
+authorization. GitHub Actions stays manual-only.
+
 ### Development workflow
 
 1. Read the current task and PROGRESS.md.

@@ -54,6 +54,9 @@ grep -q "scheduler is running" <<<"$APP_LOGS" || {
 }
 echo "worker and scheduler are running"
 
+echo "==> Deployment persistence, static assets and in-container backup"
+./scripts/ci-persistence.sh
+
 echo "==> Playwright: browser smoke tests against the production image"
 "${COMPOSE[@]}" run --rm e2e
 
