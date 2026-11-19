@@ -35,6 +35,7 @@ KEEP_RELEASES="${KEEP_RELEASES:-3}"
 RELEASE_ID="${RELEASE_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}"
 ROLLBACK_RELEASE="${ROLLBACK_RELEASE:-}"
 PREVIOUS_RELEASE=""
+UPLOAD_PATH="${UPLOAD_PATH:-}"
 LINES="${LINES:-200}"
 DIST="${DIST:-dist}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
@@ -148,7 +149,7 @@ remote() {
 
 remote_script() {
   ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "REMOTE_DIR='$REMOTE_DIR' SERVICE='$SERVICE' SERVICE_USER='$SERVICE_USER' APP_PORT='$APP_PORT' KEEP_RELEASES='$KEEP_RELEASES' SUDO='$REMOTE_SUDO' RELEASE_ID='$RELEASE_ID' GENERATE_SECRETS='$GENERATE_SECRETS' ROLLBACK_RELEASE='$ROLLBACK_RELEASE' PREVIOUS_RELEASE='$PREVIOUS_RELEASE' OS='$OS' sh -s"
+    "REMOTE_DIR='$REMOTE_DIR' SERVICE='$SERVICE' SERVICE_USER='$SERVICE_USER' APP_PORT='$APP_PORT' KEEP_RELEASES='$KEEP_RELEASES' SUDO='$REMOTE_SUDO' RELEASE_ID='$RELEASE_ID' GENERATE_SECRETS='$GENERATE_SECRETS' ROLLBACK_RELEASE='$ROLLBACK_RELEASE' PREVIOUS_RELEASE='$PREVIOUS_RELEASE' UPLOAD_PATH='$UPLOAD_PATH' OS='$OS' sh -s"
 }
 
 ensure_package() {
@@ -178,19 +179,30 @@ SCRIPT
 }
 
 upload_release() {
-  local tmp="/tmp/braindrop-$RELEASE_ID.tar.gz"
+  # Never upload to a predictable path under world-writable /tmp: another local
+  # user could pre-create it and make root unpack their archive instead. The
+  # SSH user's home is private, and mktemp makes the filename unpredictable.
+  local upload_path
+  upload_path="$(remote 'umask 077; mktemp "${HOME}/.braindrop-upload.XXXXXX"')"
+  [[ "$upload_path" == /* && "$upload_path" != *"'"* ]] || die "unexpected remote upload path"
   echo "==> Uploading release $RELEASE_ID"
-  scp "${SCP_OPTS[@]}" "$ARCHIVE" "$SSH_USER@$SSH_HOST:$tmp"
-  remote_script <<'SCRIPT'
+  scp "${SCP_OPTS[@]}" "$ARCHIVE" "$SSH_USER@$SSH_HOST:$upload_path"
+  UPLOAD_PATH="$upload_path" remote_script <<'SCRIPT'
 set -eu
 as_root() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
-tmp="/tmp/braindrop-$RELEASE_ID.tar.gz"
+tmp="$UPLOAD_PATH"
 staging="$REMOTE_DIR/releases/.staging-$RELEASE_ID"
+[ -f "$tmp" ] || { echo "error: uploaded archive is missing" >&2; exit 1; }
+cleanup() {
+  as_root rm -f "$tmp" 2>/dev/null || true
+  as_root rm -rf "$staging" 2>/dev/null || true
+}
+trap cleanup EXIT
 as_root mkdir -p "$REMOTE_DIR/releases"
 as_root rm -rf "$staging"
 as_root mkdir -p "$staging"
+as_root chmod 700 "$staging"
 as_root tar -xzf "$tmp" -C "$staging" --strip-components=1
-as_root rm -f "$tmp"
 if id "$SERVICE_USER" >/dev/null 2>&1; then
   as_root chown -R "$SERVICE_USER:$SERVICE_USER" "$staging"
 fi
