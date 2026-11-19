@@ -1,9 +1,9 @@
 # Task 011 — v0.1.0 Release Preparation Report
 
-**Status:** Source and tag published; remaining publication is paused pending
-GitHub authentication. `main` and the annotated `v0.1.0` tag are public. GHCR
-images, GitHub release assets, and repository metadata have not yet been
-published or changed.
+**Status:** Source/tag and repository metadata are published. A GitHub release
+draft contains all native archives and checksums. Docker tags and public
+release publication await GHCR authentication with a classic PAT and public
+package visibility.
 
 **Release source commit:** `86faa3dfa39bb1bf8ccd8e5f96ef71706ca8d302`
 (`release: prepare BrainDrop v0.1.0`). The release-source commit is the revision
@@ -17,9 +17,10 @@ Prepared the README, changelog and release notes; checked version consistency,
 security-sensitive tracked content and screenshots; ran full local Docker CI;
 built and checksum-verified all six native archives; locally built and tested
 the linux/amd64 and linux/arm64 production Docker image variants. The requested
-source and archive revision is `86faa3d`. The source/docs `main` branch and
-annotated tag were pushed after the user authorized publication. GHCR and
-GitHub release publication await successful GitHub CLI and registry login.
+source and archive revision is `86faa3d`. The source/docs `main` branch, the
+annotated tag, and repository description/topics were published after the user
+authorized publication. All 13 native archive/checksum files are uploaded to a
+draft release. GHCR image tags could not yet be published.
 
 ## Source, security and repository review
 
@@ -45,9 +46,11 @@ GitHub release publication await successful GitHub CLI and registry login.
   repository was empty before publication. `main` now resolves to
   `fed640324c6f53316b5245aadfd9fc259c86d094`; annotated tag `v0.1.0` resolves
   to tag object `161b0611b44d023ea8cb08adc5d468afc326f3c6`, peeled to validated
-  source `86faa3dfa39bb1bf8ccd8e5f96ef71706ca8d302`. GitHub CLI reports both
-  existing saved tokens invalid. Device authorization was started; the user
-  still needs to complete it. Description/topics have not yet been changed.
+  source `86faa3dfa39bb1bf8ccd8e5f96ef71706ca8d302`. GitHub CLI is now
+authenticated as `newmizanur` with `repo` and `write:packages` scopes. The
+repository description and all 12 requested topics are verified. A draft
+release is associated with tag `v0.1.0` and contains 13 uploaded assets; it is
+not public until published.
 
 ## CI and dependency audits
 
@@ -116,12 +119,17 @@ creation, storage persistence over container restart, and worker/scheduler
 startup checks using disposable test volumes. The amd64 check ran under
 emulation. Docker CI also passed its production-image and Playwright checks.
 
-These are platform-specific local validation tags, not registry tags or a
-published multi-platform manifest. A redundant OCI archive was not generated
-because free host disk space fell below 250 MiB after builds. At publication,
-Buildx should build the source revision once for both platforms and push the
-multi-platform `v0.1.0` and `latest` tags using the command below. The public
-registry remains untouched.
+These are platform-specific local validation tags, not final registry tags. A
+redundant OCI archive was not generated because free host disk space fell below
+250 MiB after builds. A later Buildx multi-platform publish attempt failed
+before publishing tags: amd64/arm64 concurrently unpacked the same Cargo crate
+into a shared cache. The fallback push of the validated platform images
+uploaded some layers, then the registry denied the image manifest. The package
+is private, unlinked to the repository, and has no published `v0.1.0` or
+`latest` tag. GitHub documents that Container Registry authentication requires
+a classic PAT; the `gh` OAuth token cannot publish this package. The package
+settings UI is also required to link it to the public repository and make it
+public. No final image tag or manifest is public.
 
 ## Release notes and known limitations
 
@@ -147,11 +155,11 @@ public demo or permanent public administrator is being announced. These are
 recorded in the release notes and Task 010 report. No production-capacity claim
 is made from the short benchmark samples.
 
-## Publication proposal (requires explicit approval)
+## Publication status and remaining steps
 
-Do not run these commands until the user explicitly approves the respective
-publication actions. Authenticate the local GitHub CLI and container registry
-as needed after approval.
+The user authorized all publication actions. The validated source branch and
+tag are pushed, metadata is updated, and the release draft contains all 13
+assets. Complete the following after GHCR package access is fixed.
 
 1. **Complete:** push source/docs branch and create the release tag. Verified
    with `git ls-remote`; `main` contains the report commits and the tag peels
@@ -163,38 +171,30 @@ as needed after approval.
    git push origin v0.1.0
    ```
 
-2. **Pending authentication:** build and publish both architectures and
-   requested tags from the release source commit (after logging into GHCR):
+2. **Pending:** use a classic PAT with `write:packages` for Docker login,
+   link the package to this repository and set visibility to Public in the
+   package settings UI. Then push the already-validated platform images and
+   assemble each multi-platform manifest:
 
    ```sh
-   git worktree add /tmp/braindrop-v0.1.0 86faa3dfa39bb1bf8ccd8e5f96ef71706ca8d302
-   cd /tmp/braindrop-v0.1.0
-   docker buildx build --platform linux/amd64,linux/arm64 --target runtime \
-     --build-arg VERSION=v0.1.0 --build-arg BUILD_SHA=86faa3d \
-     --tag ghcr.io/newmizanur/braindrop:v0.1.0 \
-     --tag ghcr.io/newmizanur/braindrop:latest --push .
+   docker push ghcr.io/newmizanur/braindrop:v0.1.0-amd64
+   docker push ghcr.io/newmizanur/braindrop:v0.1.0-arm64
+   docker manifest create ghcr.io/newmizanur/braindrop:v0.1.0 \
+     ghcr.io/newmizanur/braindrop:v0.1.0-amd64 \
+     ghcr.io/newmizanur/braindrop:v0.1.0-arm64
+   docker manifest push ghcr.io/newmizanur/braindrop:v0.1.0
+   docker manifest create ghcr.io/newmizanur/braindrop:latest \
+     ghcr.io/newmizanur/braindrop:v0.1.0-amd64 \
+     ghcr.io/newmizanur/braindrop:v0.1.0-arm64
+   docker manifest push ghcr.io/newmizanur/braindrop:latest
    ```
 
-3. **Pending authentication:** create a GitHub release and upload the six
-   archives, sidecars and consolidated checksum file:
+3. **Draft created:** after images are public, publish the existing release
+   draft: `gh release edit v0.1.0 --draft=false`. It contains all six archives,
+   six SHA-256 sidecars, and `SHA256SUMS`.
 
-   ```sh
-   gh release create v0.1.0 \
-     dist/braindrop-linux-amd64-musl.tar.gz \
-     dist/braindrop-linux-arm64-musl.tar.gz \
-     dist/braindrop-linux-amd64-glibc.tar.gz \
-     dist/braindrop-linux-arm64-glibc.tar.gz \
-     dist/braindrop-macos-arm64.tar.gz \
-     dist/braindrop-macos-amd64.tar.gz \
-     dist/*.tar.gz.sha256 dist/SHA256SUMS \
-     --title "BrainDrop v0.1.0" --notes-file docs/releases/v0.1.0.md
-   ```
-
-4. **Pending authentication:** set repository description to “Lightweight, self-hosted, AI-optional
-   personal inbox for tasks, notes and reminders. Built with Rust, SQLite and
-   React.” Proposed topics: `rust`, `loco-rs`, `sqlite`, `react`, `mantine`,
-   `self-hosted`, `openrouter`, `productivity`, `task-manager`, `reminders`,
-   `lightweight`, `docker`. Settings have not yet been changed.
+4. **Complete:** repository description and all 12 requested topics were
+   verified through `gh repo view`.
 
 ## Commits and working tree
 
@@ -208,12 +208,12 @@ as needed after approval.
 
 ## Readiness assessment
 
-**PARTIALLY PUBLISHED; NOT COMPLETE.** The source branch and release tag are
-public and verified. GHCR images, GitHub release/assets, and repository
-description/topics remain pending because the saved GitHub CLI tokens are
-invalid and interactive device authorization has not completed. The user
-already authorized all actions. Frontend advisory scanning, several native
-runtime targets, public authenticated proxy/CORS behavior, origin TLS mode, and
-remote/sustained notification recovery remain unverified. Do not mark Task 011
-complete until authenticated publication and public download/manifest checks
-pass.
+**PARTIALLY PUBLISHED; NOT COMPLETE.** `main`, the source-pinned tag,
+repository metadata, and a draft with all assets are verified. Public Docker
+tags and public release publication remain blocked until the GHCR package is
+linked and made public in GitHub settings and a classic PAT is used for pushes.
+After that, anonymous pulls, manifest digests, and public asset URLs must be
+checked. Frontend advisory scanning, several native runtime targets, public
+authenticated proxy/CORS behavior, origin TLS mode, and remote/sustained
+notification recovery remain unverified. Do not mark Task 011 complete until
+the remaining publication checks pass.
