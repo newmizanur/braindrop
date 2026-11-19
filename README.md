@@ -13,9 +13,9 @@ tasks, notes, ideas, reminders, search, statistics or settings.**
 
 ## Status
 
-**BrainDrop v0.1.0 is prepared for release.** Local validation passed and the
-authorized Fly.io and TierHive deployments are running. The tag, GitHub release
-and container publication are awaiting approval. See
+**BrainDrop v0.1.0 source and tag are published.** Local validation passed and
+the authorized Fly.io and TierHive deployments are running. GHCR images and
+release assets are awaiting registry/account authentication. See
 [`docs/releases/v0.1.0.md`](docs/releases/v0.1.0.md) for release notes and
 [`docs/PROGRESS.md`](docs/PROGRESS.md) for validation status.
 

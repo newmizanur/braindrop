@@ -1,8 +1,9 @@
 # Task 011 — v0.1.0 Release Preparation Report
 
-**Status:** Prepared locally; waiting at the explicit publication approval
-checkpoint. No push, tag, image publication, GitHub release, asset upload, or
-public repository setting change was performed.
+**Status:** Source and tag published; remaining publication is paused pending
+GitHub authentication. `main` and the annotated `v0.1.0` tag are public. GHCR
+images, GitHub release assets, and repository metadata have not yet been
+published or changed.
 
 **Release source commit:** `86faa3dfa39bb1bf8ccd8e5f96ef71706ca8d302`
 (`release: prepare BrainDrop v0.1.0`). The release-source commit is the revision
@@ -16,8 +17,9 @@ Prepared the README, changelog and release notes; checked version consistency,
 security-sensitive tracked content and screenshots; ran full local Docker CI;
 built and checksum-verified all six native archives; locally built and tested
 the linux/amd64 and linux/arm64 production Docker image variants. The requested
-registry tags and multi-platform manifest have not been published. Source,
-archive and Docker build revision is `86faa3d`.
+source and archive revision is `86faa3d`. The source/docs `main` branch and
+annotated tag were pushed after the user authorized publication. GHCR and
+GitHub release publication await successful GitHub CLI and registry login.
 
 ## Source, security and repository review
 
@@ -39,10 +41,13 @@ archive and Docker build revision is `86faa3d`.
 - Checked application version `0.1.0` in Cargo metadata/lockfile, frontend
   metadata, application version reporting, changelog and release notes. Docker
   image labels carry `v0.1.0`, source repository, `86faa3d` and `MIT`.
-- The local Git remote is `git@github.com:newmizanur/braindrop.git`. Read-only
-  repository inspection found the public repository empty, with no remote refs;
-  local GitHub CLI credentials are not usable. No remote state was changed.
-  Proposed description and topics are listed under publication steps.
+- The local Git remote is `git@github.com:newmizanur/braindrop.git`. The public
+  repository was empty before publication. `main` now resolves to
+  `fed640324c6f53316b5245aadfd9fc259c86d094`; annotated tag `v0.1.0` resolves
+  to tag object `161b0611b44d023ea8cb08adc5d468afc326f3c6`, peeled to validated
+  source `86faa3dfa39bb1bf8ccd8e5f96ef71706ca8d302`. GitHub CLI reports both
+  existing saved tokens invalid. Device authorization was started; the user
+  still needs to complete it. Description/topics have not yet been changed.
 
 ## CI and dependency audits
 
@@ -148,8 +153,9 @@ Do not run these commands until the user explicitly approves the respective
 publication actions. Authenticate the local GitHub CLI and container registry
 as needed after approval.
 
-1. Push source commit and create/push the release tag (remote was read-only
-   checked and had no refs):
+1. **Complete:** push source/docs branch and create the release tag. Verified
+   with `git ls-remote`; `main` contains the report commits and the tag peels
+   to the release source commit.
 
    ```sh
    git push origin main
@@ -157,8 +163,8 @@ as needed after approval.
    git push origin v0.1.0
    ```
 
-2. Build and publish both architectures and requested tags from the release
-   source commit (after logging into GHCR):
+2. **Pending authentication:** build and publish both architectures and
+   requested tags from the release source commit (after logging into GHCR):
 
    ```sh
    git worktree add /tmp/braindrop-v0.1.0 86faa3dfa39bb1bf8ccd8e5f96ef71706ca8d302
@@ -169,8 +175,8 @@ as needed after approval.
      --tag ghcr.io/newmizanur/braindrop:latest --push .
    ```
 
-3. Create a GitHub release and upload the six archives, sidecars and
-   consolidated checksum file (after approval):
+3. **Pending authentication:** create a GitHub release and upload the six
+   archives, sidecars and consolidated checksum file:
 
    ```sh
    gh release create v0.1.0 \
@@ -184,11 +190,11 @@ as needed after approval.
      --title "BrainDrop v0.1.0" --notes-file docs/releases/v0.1.0.md
    ```
 
-4. Proposed repository description: “Lightweight, self-hosted, AI-optional
+4. **Pending authentication:** set repository description to “Lightweight, self-hosted, AI-optional
    personal inbox for tasks, notes and reminders. Built with Rust, SQLite and
    React.” Proposed topics: `rust`, `loco-rs`, `sqlite`, `react`, `mantine`,
    `self-hosted`, `openrouter`, `productivity`, `task-manager`, `reminders`,
-   `lightweight`, `docker`. No settings were changed.
+   `lightweight`, `docker`. Settings have not yet been changed.
 
 ## Commits and working tree
 
@@ -202,10 +208,12 @@ as needed after approval.
 
 ## Readiness assessment
 
-**READY FOR PUBLICATION APPROVAL, WITH LIMITATIONS.** The local release source,
-CI, native artifacts and Docker platform variants are prepared and verified to
-the extent described. Frontend advisory scanning, several native runtime
-targets, public authenticated proxy/CORS behavior, origin TLS mode, and
-remote/sustained notification recovery remain unverified. No publication action
-has been taken. Obtain separate approval for source push, tag push, image
-publication, GitHub release/assets and repository settings before continuing.
+**PARTIALLY PUBLISHED; NOT COMPLETE.** The source branch and release tag are
+public and verified. GHCR images, GitHub release/assets, and repository
+description/topics remain pending because the saved GitHub CLI tokens are
+invalid and interactive device authorization has not completed. The user
+already authorized all actions. Frontend advisory scanning, several native
+runtime targets, public authenticated proxy/CORS behavior, origin TLS mode, and
+remote/sustained notification recovery remain unverified. Do not mark Task 011
+complete until authenticated publication and public download/manifest checks
+pass.
