@@ -4,17 +4,13 @@
 # Called by the Makefile deploy-* targets. Uses plain SSH and SCP; the remote
 # host needs no Docker, Rust, Node.js or rsync.
 #
-# Remote layout:
-#   /opt/braindrop/current -> releases/<release-id>
-#   /opt/braindrop/releases/<release-id>/
-#   /opt/braindrop/shared/.env
-#   /opt/braindrop/shared/data/        (application + queue SQLite)
-#   /opt/braindrop/shared/backups/
-#   /opt/braindrop/shared/logs/
+# Flat runtime layout: application/config/frontend at REMOTE_DIR; persistent
+# state in .env, data/, logs/ and backup/. One previous code archive provides
+# rollback without timestamped release directories.
 #
 # A routine deploy never uploads the local .env. The first deploy (`init`)
-# creates a starter .env from .env.example, generates secrets, and leaves the
-# file in place for the operator to review. Later deploys preserve it.
+# creates a minimal starter .env, generates secrets and leaves it for review.
+# Later deploys preserve it. Public distribution archives are not uploaded.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -31,11 +27,10 @@ ARCH="${ARCH:-amd64}"
 SERVICE="${SERVICE:-braindrop}"
 SERVICE_USER="${SERVICE_USER:-braindrop}"
 APP_PORT="${APP_PORT:-5150}"
-KEEP_RELEASES="${KEEP_RELEASES:-3}"
 RELEASE_ID="${RELEASE_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}"
-ROLLBACK_RELEASE="${ROLLBACK_RELEASE:-}"
-PREVIOUS_RELEASE=""
 UPLOAD_PATH="${UPLOAD_PATH:-}"
+RUNTIME_ARCHIVE=""
+KEEP_STAGING="${KEEP_STAGING:-0}"
 LINES="${LINES:-200}"
 DIST="${DIST:-dist}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
@@ -55,6 +50,11 @@ die() {
   exit 1
 }
 
+cleanup_local() {
+  [[ -z "$RUNTIME_ARCHIVE" ]] || rm -f "$RUNTIME_ARCHIVE"
+}
+trap cleanup_local EXIT
+
 usage() {
   cat <<'EOF'
 usage: scripts/deploy.sh <action>
@@ -73,7 +73,6 @@ Environment:
   SERVICE         default braindrop
   SERVICE_USER    default braindrop
   APP_PORT        default 5150
-  KEEP_RELEASES   default 3
   REMOTE_SUDO     default sudo for non-root, empty for root
   SKIP_BUILD=1    reuse an existing archive in dist/
   AUTO_ROLLBACK=1 restore the previous release when a health check fails
@@ -99,19 +98,13 @@ validate() {
   validate_value SERVICE "$SERVICE" '^[A-Za-z0-9._-]+$'
   validate_value SERVICE_USER "$SERVICE_USER" '^[A-Za-z0-9._-]+$'
   validate_value APP_PORT "$APP_PORT" '^[0-9]+$'
-  validate_value KEEP_RELEASES "$KEEP_RELEASES" '^[0-9]+$'
   validate_value RELEASE_ID "$RELEASE_ID" '^[A-Za-z0-9][A-Za-z0-9._-]*$'
   [[ "$RELEASE_ID" != *".."* ]] || die "RELEASE_ID must not contain '..'"
-  if [[ -n "$ROLLBACK_RELEASE" ]]; then
-    validate_value ROLLBACK_RELEASE "$ROLLBACK_RELEASE" '^[A-Za-z0-9][A-Za-z0-9._-]*$'
-    [[ "$ROLLBACK_RELEASE" != *".."* ]] || die "ROLLBACK_RELEASE must not contain '..'"
-  fi
   validate_value LINES "$LINES" '^[0-9]+$'
   [[ "$OS" == "alpine" || "$OS" == "ubuntu" ]] || die "OS must be alpine or ubuntu"
   [[ "$ARCH" == "amd64" || "$ARCH" == "arm64" ]] || die "ARCH must be amd64 or arm64"
   [[ "$SSH_PORT" -ge 1 && "$SSH_PORT" -le 65535 ]] || die "SSH_PORT is out of range"
   [[ "$APP_PORT" -ge 1 && "$APP_PORT" -le 65535 ]] || die "APP_PORT is out of range"
-  [[ "$KEEP_RELEASES" -ge 1 ]] || die "KEEP_RELEASES must be at least 1"
   if [[ -n "$REMOTE_SUDO" && ! "$REMOTE_SUDO" =~ ^[A-Za-z0-9._\ -]+$ ]]; then
     die "REMOTE_SUDO contains unsupported characters"
   fi
@@ -149,11 +142,11 @@ remote() {
 
 remote_script() {
   ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "REMOTE_DIR='$REMOTE_DIR' SERVICE='$SERVICE' SERVICE_USER='$SERVICE_USER' APP_PORT='$APP_PORT' KEEP_RELEASES='$KEEP_RELEASES' SUDO='$REMOTE_SUDO' RELEASE_ID='$RELEASE_ID' GENERATE_SECRETS='$GENERATE_SECRETS' ROLLBACK_RELEASE='$ROLLBACK_RELEASE' PREVIOUS_RELEASE='$PREVIOUS_RELEASE' UPLOAD_PATH='$UPLOAD_PATH' OS='$OS' sh -s"
+    "REMOTE_DIR='$REMOTE_DIR' SERVICE='$SERVICE' SERVICE_USER='$SERVICE_USER' APP_PORT='$APP_PORT' SUDO='$REMOTE_SUDO' RELEASE_ID='$RELEASE_ID' GENERATE_SECRETS='$GENERATE_SECRETS' UPLOAD_PATH='$UPLOAD_PATH' KEEP_STAGING='$KEEP_STAGING' OS='$OS' sh -s"
 }
 
 ensure_package() {
-  local target platform
+  local target platform distribution
   target="$(target_for)"
   platform="$(platform_for)"
   ARCHIVE="$DIST/braindrop-$platform.tar.gz"
@@ -162,53 +155,46 @@ ensure_package() {
     ./scripts/build-native.sh "$target"
     ./scripts/package.sh "$target"
   fi
-  [[ -f "$ARCHIVE" ]] || die "release archive not found: $ARCHIVE (run without SKIP_BUILD=1)"
-  echo "==> Using $ARCHIVE"
+  distribution="$DIST/braindrop-$platform"
+  [[ -f "$ARCHIVE" && -d "$distribution" ]] || die "distribution package is missing; build/package $target first"
+  RUNTIME_ARCHIVE="$(mktemp "${TMPDIR:-/tmp}/braindrop-runtime.XXXXXX")"
+  ./scripts/create-runtime-archive.sh "$distribution" "$RUNTIME_ARCHIVE"
+  echo "==> Using runtime-only bundle derived from $ARCHIVE"
 }
 
 remote_dirs() {
   remote_script <<'SCRIPT'
 set -eu
 as_root() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
-as_root mkdir -p "$REMOTE_DIR/releases" "$REMOTE_DIR/shared/data" \
-  "$REMOTE_DIR/shared/backups" "$REMOTE_DIR/shared/logs"
-if id "$SERVICE_USER" >/dev/null 2>&1; then
-  as_root chown -R "$SERVICE_USER:$SERVICE_USER" "$REMOTE_DIR/shared" "$REMOTE_DIR/releases"
-fi
+as_root mkdir -p "$REMOTE_DIR"
+as_root chown root:root "$REMOTE_DIR"
+as_root chmod 755 "$REMOTE_DIR"
 SCRIPT
 }
 
 upload_release() {
-  # Never upload to a predictable path under world-writable /tmp: another local
-  # user could pre-create it and make root unpack their archive instead. The
-  # SSH user's home is private, and mktemp makes the filename unpredictable.
   local upload_path
   upload_path="$(remote 'umask 077; mktemp "${HOME}/.braindrop-upload.XXXXXX"')"
   [[ "$upload_path" == /* && "$upload_path" != *"'"* ]] || die "unexpected remote upload path"
-  echo "==> Uploading release $RELEASE_ID"
-  scp "${SCP_OPTS[@]}" "$ARCHIVE" "$SSH_USER@$SSH_HOST:$upload_path"
+  echo "==> Uploading runtime bundle $RELEASE_ID"
+  scp "${SCP_OPTS[@]}" "$RUNTIME_ARCHIVE" "$SSH_USER@$SSH_HOST:$upload_path"
   UPLOAD_PATH="$upload_path" remote_script <<'SCRIPT'
 set -eu
 as_root() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
 tmp="$UPLOAD_PATH"
-staging="$REMOTE_DIR/releases/.staging-$RELEASE_ID"
+staging="$REMOTE_DIR/.staging-$RELEASE_ID"
 [ -f "$tmp" ] || { echo "error: uploaded archive is missing" >&2; exit 1; }
 cleanup() {
   as_root rm -f "$tmp" 2>/dev/null || true
-  as_root rm -rf "$staging" 2>/dev/null || true
+  [ "$KEEP_STAGING" = "1" ] || as_root rm -rf "$staging" 2>/dev/null || true
 }
 trap cleanup EXIT
-as_root mkdir -p "$REMOTE_DIR/releases"
 as_root rm -rf "$staging"
 as_root mkdir -p "$staging"
 as_root chmod 700 "$staging"
-as_root tar -xzf "$tmp" -C "$staging" --strip-components=1
-if id "$SERVICE_USER" >/dev/null 2>&1; then
-  as_root chown -R "$SERVICE_USER:$SERVICE_USER" "$staging"
-fi
-as_root rm -rf "$REMOTE_DIR/releases/$RELEASE_ID"
-as_root mv "$staging" "$REMOTE_DIR/releases/$RELEASE_ID"
-echo "Release stored at $REMOTE_DIR/releases/$RELEASE_ID"
+as_root tar -xzf "$tmp" -C "$staging"
+as_root sh "$staging/scripts/prepare-release.sh" "$staging"
+echo "Runtime staged at $staging"
 SCRIPT
 }
 
@@ -216,63 +202,62 @@ provision_env() {
   remote_script <<'SCRIPT'
 set -eu
 as_root() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
-env_file="$REMOTE_DIR/shared/.env"
-example="$REMOTE_DIR/releases/$RELEASE_ID/.env.example"
+env_file="$REMOTE_DIR/.env"
 if [ -f "$env_file" ]; then
   echo "==> Preserving existing $env_file"
   exit 0
 fi
-[ -f "$example" ] || { echo "error: missing $example" >&2; exit 1; }
-as_root cp "$example" "$env_file"
-# Native installs keep data under shared/data instead of the Docker /data path.
-as_root sed -i "s#/data/#$REMOTE_DIR/shared/data/#g" "$env_file"
-if [ "$GENERATE_SECRETS" = "1" ]; then
-  command -v openssl >/dev/null 2>&1 || { echo "error: openssl is required to generate secrets" >&2; exit 1; }
-  for key in JWT_SECRET AI_ENCRYPTION_KEY NOTIFICATION_ENCRYPTION_KEY; do
-    value="$(openssl rand -base64 32)"
-    as_root sed -i "s#^$key=.*#$key=$value#" "$env_file"
-  done
-else
-  echo "warning: GENERATE_SECRETS=0; edit $env_file before starting" >&2
+if [ -f "$REMOTE_DIR/shared/.env" ]; then
+  echo "error: legacy environment must be migrated before provisioning" >&2
+  exit 1
 fi
+[ "$GENERATE_SECRETS" = "1" ] || { echo "error: secret generation is required for init" >&2; exit 1; }
+command -v openssl >/dev/null 2>&1 || { echo "error: openssl is required to generate secrets" >&2; exit 1; }
+jwt_secret="$(openssl rand -base64 32)"
+ai_key="$(openssl rand -base64 32)"
+as_root sh -c 'umask 077; cat > "$1"' sh "$env_file" <<EOF
+LOCO_ENV=production
+PORT=$APP_PORT
+BINDING=0.0.0.0
+HOST=http://localhost:$APP_PORT
+LOG_LEVEL=info
+DATABASE_URL=sqlite://$REMOTE_DIR/data/braindrop.sqlite?mode=rwc
+QUEUE_URL=sqlite://$REMOTE_DIR/data/braindrop_queue.sqlite?mode=rwc
+DB_AUTO_MIGRATE=true
+DB_MAX_CONNECTIONS=4
+JWT_SECRET=$jwt_secret
+ALLOW_REGISTRATION=false
+REQUIRE_EMAIL_VERIFICATION=false
+REMOTE_IP_SOURCE=ConnectInfo
+AI_ENABLED=false
+AI_ENCRYPTION_KEY=$ai_key
+NOTIFICATION_ENCRYPTION_KEY=
+EOF
 as_root chmod 600 "$env_file"
 if id "$SERVICE_USER" >/dev/null 2>&1; then
   as_root chown "$SERVICE_USER:$SERVICE_USER" "$env_file"
 fi
-echo "==> Created $env_file"
-echo "    Review HOST and SMTP settings before exposing the service."
+echo "==> Created protected $env_file with fresh persistent secrets"
 SCRIPT
 }
 
-activate_release() {
+migrate_native_layout() {
   remote_script <<'SCRIPT'
 set -eu
 as_root() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
-temporary_link="$REMOTE_DIR/.current.$RELEASE_ID.$$"
-as_root rm -f "$temporary_link"
-as_root ln -s "$REMOTE_DIR/releases/$RELEASE_ID" "$temporary_link"
-# Same-directory rename atomically replaces the link on GNU coreutils and
-# BusyBox; -T prevents mv from treating a symlink-to-directory as a directory.
-as_root mv -Tf "$temporary_link" "$REMOTE_DIR/current"
-echo "==> Activated $REMOTE_DIR/releases/$RELEASE_ID"
+staging="$REMOTE_DIR/.staging-$RELEASE_ID"
+as_root sh "$staging/scripts/migrate-native-layout.sh" "$REMOTE_DIR" "$SERVICE_USER"
 SCRIPT
 }
 
-previous_release() {
-  remote "readlink -f '$REMOTE_DIR/current' 2>/dev/null || true"
-}
-
 require_env() {
-  remote "test -f '$REMOTE_DIR/shared/.env'" || die "$REMOTE_DIR/shared/.env is missing; run the init action first"
+  remote "test -f '$REMOTE_DIR/.env' -o -f '$REMOTE_DIR/shared/.env'" || die "$REMOTE_DIR/.env is missing; run the init action first"
 }
 
 run_migrations() {
   remote_script <<'SCRIPT'
 set -eu
-as_root() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
-env_file="$REMOTE_DIR/shared/.env"
-release="$REMOTE_DIR/releases/$RELEASE_ID"
-command="set -a; . '$env_file'; set +a; cd '$release'; ./braindrop db migrate"
+command="set -a; . '$REMOTE_DIR/.env'; set +a; cd '$REMOTE_DIR/.staging-$RELEASE_ID'; ./braindrop db migrate"
 if [ "$(id -u)" = "0" ]; then
   if [ -n "$SUDO" ]; then
     $SUDO -u "$SERVICE_USER" sh -c "$command"
@@ -283,6 +268,70 @@ else
   sh -c "$command"
 fi
 echo "==> Migrations applied"
+SCRIPT
+}
+
+snapshot_previous_runtime() {
+  remote_script <<'SCRIPT'
+set -eu
+as_root() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
+source="$REMOTE_DIR"
+if [ -L "$REMOTE_DIR/current" ]; then source="$(readlink -f "$REMOTE_DIR/current")"; fi
+if [ ! -f "$source/braindrop" ]; then
+  echo "==> No previous runtime to snapshot"
+  exit 0
+fi
+as_root mkdir -p "$REMOTE_DIR/backup"
+tmp="$REMOTE_DIR/backup/.previous-runtime-$RELEASE_ID.tar.gz"
+as_root tar -czf "$tmp" --exclude='._*' --exclude='.DS_Store' --exclude='__MACOSX' \
+  -C "$source" braindrop config/production.yaml frontend/dist scripts/backup.sh scripts/restore.sh
+as_root chmod 600 "$tmp"
+as_root mv -f "$tmp" "$REMOTE_DIR/backup/previous-runtime.tar.gz"
+echo "==> Previous runtime saved for rollback"
+SCRIPT
+}
+
+backup_before_upgrade() {
+  remote_script <<'SCRIPT'
+set -eu
+as_root() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
+data="$REMOTE_DIR/data"
+if [ ! -f "$data/braindrop.sqlite" ]; then
+  echo "==> No application database exists yet; skipping pre-upgrade backup"
+  exit 0
+fi
+source="$REMOTE_DIR"
+if [ -L "$REMOTE_DIR/current" ]; then source="$(readlink -f "$REMOTE_DIR/current")"; fi
+script="$source/scripts/backup.sh"
+[ -x "$script" ] || { echo "error: previous runtime has no backup script" >&2; exit 1; }
+command="DATA_DIR='$data' DB_PATH='$data/braindrop.sqlite' QUEUE_PATH='$data/braindrop_queue.sqlite' BACKUP_DIR='$REMOTE_DIR/backup' '$script'"
+if [ "$(id -u)" = "0" ]; then
+  if [ -n "$SUDO" ]; then $SUDO -u "$SERVICE_USER" sh -c "$command"; else su -s /bin/sh -c "$command" "$SERVICE_USER"; fi
+else
+  sh -c "$command"
+fi
+SCRIPT
+}
+
+activate_runtime() {
+  remote_script <<'SCRIPT'
+set -eu
+as_root() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
+staging="$REMOTE_DIR/.staging-$RELEASE_ID"
+for path in braindrop config frontend scripts; do
+  as_root rm -rf "$REMOTE_DIR/$path"
+done
+as_root mkdir -p "$REMOTE_DIR/scripts"
+as_root cp -R "$staging/braindrop" "$REMOTE_DIR/"
+as_root cp -R "$staging/config" "$REMOTE_DIR/"
+as_root cp -R "$staging/frontend" "$REMOTE_DIR/"
+as_root cp -R "$staging/scripts/backup.sh" "$staging/scripts/restore.sh" "$REMOTE_DIR/scripts/"
+as_root chown -R root:root "$REMOTE_DIR/braindrop" "$REMOTE_DIR/config" "$REMOTE_DIR/frontend" "$REMOTE_DIR/scripts"
+as_root chmod 755 "$REMOTE_DIR/braindrop"
+as_root find "$REMOTE_DIR/config" "$REMOTE_DIR/frontend" "$REMOTE_DIR/scripts" -type d -exec chmod 755 {} \;
+as_root find "$REMOTE_DIR/config" "$REMOTE_DIR/frontend" "$REMOTE_DIR/scripts" -type f -exec chmod 644 {} \;
+for script in backup.sh restore.sh; do as_root chmod 755 "$REMOTE_DIR/scripts/$script"; done
+echo "==> Installed root-owned flat runtime"
 SCRIPT
 }
 
@@ -332,83 +381,122 @@ exit 1
 SCRIPT
 }
 
-prune_releases() {
+install_service() {
   remote_script <<'SCRIPT'
 set -eu
 as_root() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
-current="$(readlink -f "$REMOTE_DIR/current" 2>/dev/null || true)"
-i=0
-for dir in $(ls -1dt "$REMOTE_DIR/releases"/* 2>/dev/null); do
-  i=$((i + 1))
-  [ "$i" -le "$KEEP_RELEASES" ] && continue
-  [ "$dir" = "$current" ] && continue
-  as_root rm -rf "$dir"
-done
-SCRIPT
-}
-
-install_service() {
-  local init_script="$REMOTE_DIR/releases/$RELEASE_ID/scripts/deploy-init-$OS.sh"
-  remote_script <<SCRIPT
-set -eu
-as_root() { if [ -n "\$SUDO" ]; then \$SUDO "\$@"; else "\$@"; fi; }
-test -f "$init_script" || { echo "error: missing $init_script" >&2; exit 1; }
-# Pass the settings explicitly: sudo resets the environment by default, so
-# relying on inherited variables would silently fall back to the defaults.
+init_script="$REMOTE_DIR/.staging-$RELEASE_ID/scripts/deploy-init-$OS.sh"
+test -f "$init_script" || { echo "error: missing service installer in staged runtime" >&2; exit 1; }
 as_root env REMOTE_DIR="$REMOTE_DIR" SERVICE="$SERVICE" SERVICE_USER="$SERVICE_USER" \
   APP_PORT="$APP_PORT" sh "$init_script"
 SCRIPT
 }
 
+cleanup_legacy_layout() {
+  remote_script <<'SCRIPT'
+set -eu
+as_root() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
+# The old release tree is code-only. Refuse to prune it if a prior/manual
+# layout put environment, database, or runtime state files beneath it.
+if [ -d "$REMOTE_DIR/releases" ]; then
+  if find "$REMOTE_DIR/releases" \( -name '.env' -o -name '*.sqlite' -o -name '*.sqlite-*' \) -print | grep -q .; then
+    echo "error: refusing to remove legacy releases containing secrets or SQLite state" >&2
+    exit 1
+  fi
+  if find "$REMOTE_DIR/releases" -type d \( -name data -o -name backup -o -name backups -o -name logs \) -print | grep -q .; then
+    echo "error: refusing to remove legacy releases containing runtime state directories" >&2
+    exit 1
+  fi
+fi
+as_root rm -f "$REMOTE_DIR/shared/.env" "$REMOTE_DIR/shared/data" \
+  "$REMOTE_DIR/shared/backups" "$REMOTE_DIR/shared/logs"
+as_root rmdir "$REMOTE_DIR/shared" 2>/dev/null || true
+as_root rm -f "$REMOTE_DIR/current"
+as_root rm -rf "$REMOTE_DIR/releases"
+as_root rm -rf "$REMOTE_DIR/.staging-$RELEASE_ID"
+SCRIPT
+}
+
+restore_previous_runtime() {
+  remote_script <<'SCRIPT'
+set -eu
+as_root() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
+archive="$REMOTE_DIR/backup/previous-runtime.tar.gz"
+[ -s "$archive" ] || { echo "error: previous runtime archive is missing" >&2; exit 1; }
+staging="$REMOTE_DIR/.rollback-$RELEASE_ID"
+as_root rm -rf "$staging"
+as_root mkdir -p "$staging"
+as_root tar -xzf "$archive" -C "$staging"
+as_root chown -R root:root "$staging"
+as_root find "$staging" -type d -exec chmod 755 {} \;
+as_root find "$staging" -type f -exec chmod 644 {} \;
+as_root chmod 755 "$staging/braindrop" "$staging/scripts/backup.sh" "$staging/scripts/restore.sh"
+for path in braindrop config frontend scripts; do as_root rm -rf "$REMOTE_DIR/$path"; done
+for path in braindrop config frontend scripts; do as_root cp -R "$staging/$path" "$REMOTE_DIR/$path"; done
+as_root chown -R root:root "$REMOTE_DIR/braindrop" "$REMOTE_DIR/config" "$REMOTE_DIR/frontend" "$REMOTE_DIR/scripts"
+as_root rm -rf "$staging"
+echo "==> Previous runtime restored"
+SCRIPT
+}
+
+restore_previous_runtime_after_failure() {
+  stop_service || true
+  restore_previous_runtime || return 1
+  restart_service || return 1
+  health_check
+}
+
 action_files() {
   ensure_package
   remote_dirs
+  KEEP_STAGING=1
   upload_release
 }
 
 action_init() {
   ensure_package
   remote_dirs
+  KEEP_STAGING=1
   upload_release
+  migrate_native_layout
   provision_env
-  activate_release
+  activate_runtime
   install_service
-  health_check
-  echo "==> Initial deployment complete. Review $REMOTE_DIR/shared/.env, then restart the service."
+  if ! health_check; then
+    stop_service || true
+    die "initial deployment health check failed"
+  fi
+  cleanup_legacy_layout
+  echo "==> Initial flat runtime installed; review $REMOTE_DIR/.env before public exposure"
 }
 
 action_deploy() {
   ensure_package
   require_env
   remote_dirs
-  PREVIOUS_RELEASE="$(previous_release)"
+  KEEP_STAGING=1
   upload_release
-  run_migrations
-  activate_release
-  if ! restart_service; then
-    die "service restart failed"
+  stop_service
+  if ! migrate_native_layout; then restart_service || true; die "could not migrate legacy runtime paths"; fi
+  if ! snapshot_previous_runtime; then restart_service || true; die "could not save previous runtime for rollback"; fi
+  if ! backup_before_upgrade; then restart_service || true; die "pre-upgrade database backup failed"; fi
+  if ! run_migrations; then restart_service || true; die "database migration failed; previous runtime remains installed"; fi
+  if ! activate_runtime; then
+    restore_previous_runtime_after_failure || true
+    die "runtime activation failed; rollback was attempted"
   fi
-  if ! health_check; then
-    if [[ "$AUTO_ROLLBACK" == "1" && -n "$PREVIOUS_RELEASE" ]]; then
-      echo "error: health check failed; rolling back to $PREVIOUS_RELEASE" >&2
-      remote_script <<'SCRIPT'
-set -eu
-as_root() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
-if [ -n "$PREVIOUS_RELEASE" ]; then
-  temporary_link="$REMOTE_DIR/.current.rollback.$$"
-  as_root rm -f "$temporary_link"
-  as_root ln -s "$PREVIOUS_RELEASE" "$temporary_link"
-  as_root mv -Tf "$temporary_link" "$REMOTE_DIR/current"
-fi
-SCRIPT
-      restart_service || true
-      health_check || true
-      die "deployment failed and was rolled back; the database was not rolled back"
+  if ! install_service || ! health_check; then
+    if [[ "$AUTO_ROLLBACK" == "1" ]]; then
+      echo "error: deployment health failed; restoring previous runtime" >&2
+      if restore_previous_runtime_after_failure; then
+        cleanup_legacy_layout || true
+        die "deployment failed; previous runtime restored; database remains at migrated schema"
+      fi
     fi
-    die "deployment failed; the service did not become healthy"
+    die "deployment failed and service did not become healthy; inspect service and rollback archive"
   fi
-  prune_releases
-  echo "==> Deployment $RELEASE_ID complete"
+  cleanup_legacy_layout
+  echo "==> Flat deployment $RELEASE_ID complete"
 }
 
 action_restart() {
@@ -420,7 +508,7 @@ action_restart() {
 action_status() {
   remote_script <<'SCRIPT'
 set -eu
-echo "current: $(readlink -f "$REMOTE_DIR/current" 2>/dev/null || echo none)"
+if [ -f "$REMOTE_DIR/braindrop" ]; then echo "layout: flat"; else echo "layout: not-installed"; fi
 if command -v systemctl >/dev/null 2>&1; then
   systemctl is-active "$SERVICE" || true
 elif command -v rc-service >/dev/null 2>&1; then
@@ -437,11 +525,11 @@ SCRIPT
 action_logs() {
   remote_script <<SCRIPT
 set -eu
-as_root() { if [ -n "\$SUDO" ]; then \$SUDO "\$@"; else "\$@"; fi; }
+as_root() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
 if command -v journalctl >/dev/null 2>&1; then
   as_root journalctl -u "$SERVICE" -n "$LINES" -f
 else
-  as_root tail -n "$LINES" -f "$REMOTE_DIR/shared/logs/braindrop.log"
+  as_root tail -n "$LINES" "$REMOTE_DIR/logs/braindrop.log" "$REMOTE_DIR/logs/braindrop.err.log"
 fi
 SCRIPT
 }
@@ -453,15 +541,13 @@ action_stop() {
 action_backup() {
   remote_script <<'SCRIPT'
 set -eu
-as_root() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
-data="$REMOTE_DIR/shared/data"
-command="cd '$REMOTE_DIR/current'; DATA_DIR='$data' BACKUP_DIR='$data/../backups' DB_PATH='$data/braindrop.sqlite' QUEUE_PATH='$data/braindrop_queue.sqlite' ./scripts/backup.sh"
+if [ ! -f "$REMOTE_DIR/data/braindrop.sqlite" ]; then
+  echo "error: application database does not exist yet" >&2
+  exit 1
+fi
+command="DATA_DIR='$REMOTE_DIR/data' DB_PATH='$REMOTE_DIR/data/braindrop.sqlite' QUEUE_PATH='$REMOTE_DIR/data/braindrop_queue.sqlite' BACKUP_DIR='$REMOTE_DIR/backup' '$REMOTE_DIR/scripts/backup.sh'"
 if [ "$(id -u)" = "0" ]; then
-  if [ -n "$SUDO" ]; then
-    $SUDO -u "$SERVICE_USER" sh -c "$command"
-  else
-    su -s /bin/sh -c "$command" "$SERVICE_USER"
-  fi
+  if [ -n "$SUDO" ]; then $SUDO -u "$SERVICE_USER" sh -c "$command"; else su -s /bin/sh -c "$command" "$SERVICE_USER"; fi
 else
   sh -c "$command"
 fi
@@ -472,28 +558,43 @@ action_rollback() {
   remote_script <<'SCRIPT'
 set -eu
 as_root() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
-current="$(readlink -f "$REMOTE_DIR/current" 2>/dev/null || true)"
-target=""
-if [ -n "${ROLLBACK_RELEASE:-}" ]; then
-  target="$REMOTE_DIR/releases/$ROLLBACK_RELEASE"
-else
-  for dir in $(ls -1dt "$REMOTE_DIR/releases"/* 2>/dev/null); do
-    if [ "$dir" != "$current" ]; then
-      target="$dir"
-      break
-    fi
-  done
-fi
-[ -n "$target" ] && [ -d "$target" ] || { echo "error: no previous release available" >&2; exit 1; }
-temporary_link="$REMOTE_DIR/.current.rollback.$$"
-as_root rm -f "$temporary_link"
-as_root ln -s "$target" "$temporary_link"
-as_root mv -Tf "$temporary_link" "$REMOTE_DIR/current"
-echo "==> Rolled back to $target"
+archive="$REMOTE_DIR/backup/previous-runtime.tar.gz"
+[ -s "$archive" ] || { echo "error: no previous runtime is available" >&2; exit 1; }
 SCRIPT
-  restart_service
-  health_check
-  echo "warning: the database schema was not rolled back; restore a matching backup if needed."
+  stop_service
+  remote_script <<'SCRIPT'
+set -eu
+as_root() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
+archive="$REMOTE_DIR/backup/previous-runtime.tar.gz"
+target="$REMOTE_DIR/backup/.rollback-target-$RELEASE_ID.tar.gz"
+as_root mv "$archive" "$target"
+SCRIPT
+  if ! snapshot_previous_runtime; then
+    remote "mv '$REMOTE_DIR/backup/.rollback-target-$RELEASE_ID.tar.gz' '$REMOTE_DIR/backup/previous-runtime.tar.gz'"
+    restart_service || true
+    die "could not preserve the active runtime before rollback"
+  fi
+  remote_script <<'SCRIPT'
+set -eu
+as_root() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
+target="$REMOTE_DIR/backup/.rollback-target-$RELEASE_ID.tar.gz"
+staging="$REMOTE_DIR/.rollback-$RELEASE_ID"
+as_root mkdir -p "$staging"
+as_root tar -xzf "$target" -C "$staging"
+as_root chown -R root:root "$staging"
+as_root find "$staging" -type d -exec chmod 755 {} \;
+as_root find "$staging" -type f -exec chmod 644 {} \;
+as_root chmod 755 "$staging/braindrop" "$staging/scripts/backup.sh" "$staging/scripts/restore.sh"
+for path in braindrop config frontend scripts; do as_root rm -rf "$REMOTE_DIR/$path"; done
+for path in braindrop config frontend scripts; do as_root cp -R "$staging/$path" "$REMOTE_DIR/$path"; done
+as_root chown -R root:root "$REMOTE_DIR/braindrop" "$REMOTE_DIR/config" "$REMOTE_DIR/frontend" "$REMOTE_DIR/scripts"
+as_root rm -rf "$staging" "$target"
+SCRIPT
+  if ! restart_service || ! health_check; then
+    restore_previous_runtime_after_failure || die "rollback health failed and the prior runtime could not be restored"
+    die "rollback health failed; the active runtime was restored"
+  fi
+  echo "warning: database schema was not rolled back; restore the matching backup if required."
 }
 
 if [[ "$ACTION" == "help" || "$ACTION" == "--help" || "$ACTION" == "-h" ]]; then

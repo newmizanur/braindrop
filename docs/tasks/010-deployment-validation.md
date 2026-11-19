@@ -1,6 +1,6 @@
 # Task 010 — Deployment validation record
 
-**Date:** 2026-11-19  
+**Date:** 2026-11-19 to 2026-11-20
 **Baseline:** Task 009 commit `103c591969b52f93c8a5254f50edfc5ca23105e6`  
 **Scope:** Local Task 010 preparation plus authorized TierHive inspection and
 Fly.io deployment validation. No repository contains remote addresses, SSH
@@ -214,3 +214,71 @@ runtime/package contents.
 **Task 010: INCOMPLETE WITH REMOTE VALIDATION LIMITATIONS.**
 No pushes, tags, GitHub Actions, GitHub releases or public image publications
 were made.
+
+## 2026-11-20 continuation: native runtime and remote recheck
+
+The owner reported and fixed the original TierHive start failure: the binary
+was executable as root but not by the non-root service account because the
+release tree retained restrictive/non-root ownership and archive metadata. The
+owner normalized release ownership to root and directories/binary to executable
+readable modes. A read-only recheck now confirms OpenRC is started and enabled
+at boot, the app process runs as UID 103, the binary is root-owned mode 755,
+`.env` is service-owned mode 600, and local health, the frontend and a SPA deep
+link all return 200. Both databases pass integrity checks. This recheck did not
+read production environment values or logs.
+
+The public endpoint's HTTPS request still fails during the TLS handshake with
+an unrecognized-name alert. No authentication credentials were sent over
+public HTTP. Authenticated tests can proceed only through a verified TLS path or
+an SSH tunnel to the local application. The managed proxy/DNS was not changed.
+
+Local changes now prepare a flat `/opt/braindrop` runtime, keep service
+definitions under `/etc`, normalize package ownership/modes, exclude macOS
+metadata, separate public distribution archives from runtime upload archives,
+and preserve existing databases, backups, logs and `.env` while migrating the
+former `shared/` layout. Upgrades use one code-only previous-runtime archive;
+they take a DB backup before migrations and restore old code on failed health
+checks. Database schema rollback still requires restoring the matching DB
+backup. Cleanup refuses to remove old release trees containing `.env`, SQLite
+files or state directories. These script changes are local and have not yet
+been deployed to TierHive.
+
+`admin:create` now supports `password_stdin:true` to avoid putting production
+passwords in process arguments, with password length and stdin parsing tests.
+Separate TierHive and Fly administrator accounts, authenticated workload
+measurements and notification recovery checks remain pending the operator's
+email and display name.
+
+The running pre-migration TierHive process sample was 22,476 KiB RSS, 24,840
+KiB process high-water RSS, with 45,692 KiB host memory available and 130,072
+KiB of 131,068 KiB swap free. App and queue databases occupied 160 KiB. Three
+local health samples were 0.7–14.2 ms; frontend and deep-link checks were 1.2
+and 0.7 ms. CPU, active workload, startup time and peak-under-load were not
+measured. These idle observations do not establish capacity on the host.
+
+Host fallback checks passed: formatting and Clippy; Rust tests (104 unit, 103
+integration/model/task); frontend typecheck, lint, unit tests (36), build and
+TypeScript binding drift; and Playwright (14 passed, one screenshot test
+skipped). The Docker engine was accessible outside the restricted sandbox.
+After correcting test fixture issues, full `./scripts/ci.sh` passed, including
+Linux archive/ownership/non-root tests, production image health, workers,
+scheduler, persistence, backup and Playwright checks. All six release targets
+were rebuilt and packaged from the updated source tree; checksum and archive
+metadata verification is recorded in the continuation report after commit.
+`pnpm audit` was retried but npm registry DNS returned `ENOTFOUND`. Cargo audit
+used the local advisory database and reported the already-documented
+unmaintained `chrono`, `chrono-tz`, and `unsafe-libyaml` advisories with no
+fixed upgrades.
+
+The current Fly machine is stopped by its configured auto-stop behavior and
+remains at the existing 256 MiB/one-volume shape. Strict Fly config validation
+passes. Account authentication, item persistence after cold start, active
+resource measurements and notification job recovery have not yet been repeated
+in this continuation.
+
+**Task 010 remains incomplete.** The local CI and release rebuild now pass, but
+the updated native flat runtime has not yet been deployed. Authenticated checks
+need the operator's administrator email/display name and a verified TLS or SSH
+transport; the public TLS endpoint currently returns an unrecognized-name
+handshake error. Remote backup/restore, upgrade/rollback, and active resource
+measurements remain outstanding.

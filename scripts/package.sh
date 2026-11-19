@@ -12,14 +12,16 @@
 #   dist/braindrop-linux-amd64-musl.tar.gz
 #   dist/braindrop-linux-amd64-musl.tar.gz.sha256
 #
-# The archive contains the release binary, production config, built SPA,
-# operational scripts, .env.example, README and LICENSE. It never contains a
-# database, a real .env, node_modules, source or build output.
+# Public archives contain a runnable binary, production config, built SPA,
+# operational scripts, .env.example, README, deployment docs and LICENSE. The
+# SSH deployer builds a separate runtime-only archive from this distribution.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 DIST="${DIST:-dist}"
+FRONTEND_DIST="${FRONTEND_DIST:-frontend/dist}"
+DEPLOYMENT_DOC="${DEPLOYMENT_DOC:-docs/DEPLOYMENT.md}"
 TARGET=""
 CHECK_DIR=""
 
@@ -55,8 +57,13 @@ check_layout() {
     frontend/dist/index.html \
     scripts/backup.sh \
     scripts/restore.sh \
+    scripts/deploy-init-alpine.sh \
+    scripts/deploy-init-ubuntu.sh \
+    scripts/prepare-release.sh \
+    scripts/migrate-native-layout.sh \
     .env.example \
     README.md \
+    DEPLOYMENT.md \
     LICENSE \
     RELEASE; do
     if [[ ! -e "$dir/$path" ]]; then
@@ -110,15 +117,26 @@ mkdir -p "$STAGE/config" "$STAGE/frontend" "$STAGE/scripts"
 cp "$BINARY" "$STAGE/braindrop"
 chmod 755 "$STAGE/braindrop"
 cp config/production.yaml "$STAGE/config/production.yaml"
-cp -R frontend/dist "$STAGE/frontend/dist"
-for script in backup.sh restore.sh test-backup-restore.sh \
-  deploy-init-alpine.sh deploy-init-ubuntu.sh; do
+cp -R "$FRONTEND_DIST" "$STAGE/frontend/dist"
+for script in backup.sh restore.sh deploy-init-alpine.sh deploy-init-ubuntu.sh \
+  prepare-release.sh migrate-native-layout.sh; do
   cp "scripts/$script" "$STAGE/scripts/$script"
   chmod 755 "$STAGE/scripts/$script"
 done
 cp .env.example "$STAGE/.env.example"
 cp README.md LICENSE "$STAGE/"
-cp docs/DEPLOYMENT.md "$STAGE/DEPLOYMENT.md"
+[[ -f "$DEPLOYMENT_DOC" ]] || {
+  echo "error: deployment documentation not found: $DEPLOYMENT_DOC" >&2
+  exit 1
+}
+cp "$DEPLOYMENT_DOC" "$STAGE/DEPLOYMENT.md"
+
+# Normalize source metadata from macOS or unusual umasks before packaging.
+find "$STAGE" \( -name '._*' -o -name '.DS_Store' -o -name '__MACOSX' \) \
+  -exec rm -rf {} +
+find "$STAGE" -type d -exec chmod 755 {} \;
+find "$STAGE" -type f -exec chmod 644 {} \;
+chmod 755 "$STAGE/braindrop" "$STAGE"/scripts/*.sh
 
 GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
@@ -134,7 +152,8 @@ check_layout "$STAGE"
 
 ARCHIVE="$DIST/braindrop-$NAME.tar.gz"
 rm -f "$ARCHIVE" "$ARCHIVE.sha256"
-tar -czf "$ARCHIVE" -C "$DIST" "braindrop-$NAME"
+COPYFILE_DISABLE=1 tar -czf "$ARCHIVE" --exclude='._*' --exclude='.DS_Store' --exclude='__MACOSX' \
+  -C "$DIST" "braindrop-$NAME"
 if command -v sha256sum >/dev/null 2>&1; then
   (cd "$DIST" && sha256sum "braindrop-$NAME.tar.gz" >"braindrop-$NAME.tar.gz.sha256")
 else

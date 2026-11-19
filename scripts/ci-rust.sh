@@ -37,9 +37,14 @@ echo "==> Service script syntax"
 bash -n scripts/deploy.sh
 sh -n scripts/deploy-init-alpine.sh
 sh -n scripts/deploy-init-ubuntu.sh
+sh -n scripts/prepare-release.sh
+sh -n scripts/migrate-native-layout.sh
 bash -n scripts/backup.sh
 bash -n scripts/restore.sh
 bash -n scripts/package.sh
+bash -n scripts/create-runtime-archive.sh
+bash -n scripts/test-package-deploy.sh
+bash -n scripts/test-native-layout-migration.sh
 
 echo "==> Distribution package layout check"
 PKG_CHECK="$(mktemp -d)"
@@ -50,11 +55,20 @@ chmod 755 "$PKG_CHECK/braindrop"
 : >"$PKG_CHECK/frontend/dist/index.html"
 : >"$PKG_CHECK/scripts/backup.sh"
 : >"$PKG_CHECK/scripts/restore.sh"
+: >"$PKG_CHECK/scripts/deploy-init-alpine.sh"
+: >"$PKG_CHECK/scripts/deploy-init-ubuntu.sh"
+: >"$PKG_CHECK/scripts/prepare-release.sh"
+: >"$PKG_CHECK/scripts/migrate-native-layout.sh"
 : >"$PKG_CHECK/.env.example"
 : >"$PKG_CHECK/README.md"
+: >"$PKG_CHECK/DEPLOYMENT.md"
 : >"$PKG_CHECK/LICENSE"
 : >"$PKG_CHECK/RELEASE"
 ./scripts/package.sh --check "$PKG_CHECK"
 rm -rf "$PKG_CHECK"
+
+echo "==> Native package/runtime permissions regression test"
+./scripts/test-package-deploy.sh
+./scripts/test-native-layout-migration.sh
 
 echo "==> Rust checks passed"

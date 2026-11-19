@@ -45,9 +45,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM debian:bookworm-slim AS runtime
 
 # curl is used by the container health check and by operators. sqlite3, tar,
-# gzip and find are included so `scripts/backup.sh` and `scripts/restore.sh`
-# can run inside the container without a second image. No compiler, Node.js,
-# pnpm or source tree is present.
+# and gzip support the two shipped backup/restore scripts. No compiler,
+# Node.js, pnpm, development scripts, docs or example environment file ship in
+# the runtime image.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates curl sqlite3 tar gzip findutils \
@@ -58,10 +58,9 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY --from=builder /usr/local/bin/braindrop-cli /usr/local/bin/braindrop-cli
-COPY config ./config
+COPY --from=builder /app/config/production.yaml ./config/production.yaml
 COPY --from=frontend /app/frontend/dist ./frontend/dist
-COPY scripts ./scripts
-COPY .env.example README.md LICENSE ./
+COPY scripts/backup.sh scripts/restore.sh ./scripts/
 
 ENV LOCO_ENV=production \
     PORT=5150 \

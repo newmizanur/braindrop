@@ -2,8 +2,8 @@
 # First-time Ubuntu Server / systemd setup for BrainDrop.
 #
 # Run as root on the target host. `scripts/deploy.sh init` runs this after
-# uploading a release and provisioning shared/.env. It is safe to re-run: the
-# service account, directories and existing .env are preserved.
+# installing the runtime and provisioning .env. It is safe to re-run: existing
+# secrets and data are preserved.
 #
 # Required Ubuntu packages:
 #   apt-get install -y ca-certificates curl openssl sqlite3 tzdata
@@ -13,8 +13,7 @@ REMOTE_DIR="${REMOTE_DIR:-/opt/braindrop}"
 SERVICE="${SERVICE:-braindrop}"
 SERVICE_USER="${SERVICE_USER:-braindrop}"
 APP_PORT="${APP_PORT:-5150}"
-ENV_FILE="$REMOTE_DIR/shared/.env"
-CURRENT="$REMOTE_DIR/current"
+ENV_FILE="$REMOTE_DIR/.env"
 
 die() {
   echo "error: $*" >&2
@@ -23,23 +22,24 @@ die() {
 
 [ "$(id -u)" = "0" ] || die "run this script as root"
 command -v systemctl >/dev/null 2>&1 || die "systemd is required"
-[ -f "$CURRENT/braindrop" ] || die "no active release at $CURRENT; run deploy.sh init"
+[ -f "$REMOTE_DIR/braindrop" ] || die "no installed binary at $REMOTE_DIR/braindrop"
 [ -f "$ENV_FILE" ] || die "missing $ENV_FILE; run deploy.sh init"
 
 if ! id "$SERVICE_USER" >/dev/null 2>&1; then
   useradd --system --home-dir "$REMOTE_DIR" --shell /usr/sbin/nologin "$SERVICE_USER"
 fi
 
-mkdir -p "$REMOTE_DIR/shared/data" "$REMOTE_DIR/shared/backups" "$REMOTE_DIR/shared/logs"
-chown -R "$SERVICE_USER:$SERVICE_USER" "$REMOTE_DIR/shared"
-chmod 750 "$REMOTE_DIR/shared" "$REMOTE_DIR/shared/data"
+mkdir -p "$REMOTE_DIR/data" "$REMOTE_DIR/backup" "$REMOTE_DIR/logs"
+chown -R "$SERVICE_USER:$SERVICE_USER" "$REMOTE_DIR/data" "$REMOTE_DIR/backup" "$REMOTE_DIR/logs"
+chmod 750 "$REMOTE_DIR/data" "$REMOTE_DIR/backup" "$REMOTE_DIR/logs"
 chmod 600 "$ENV_FILE"
 chown "$SERVICE_USER:$SERVICE_USER" "$ENV_FILE"
+chown root:root "$REMOTE_DIR" "$REMOTE_DIR/braindrop"
+chmod 755 "$REMOTE_DIR" "$REMOTE_DIR/braindrop"
 
 cat >"/etc/systemd/system/$SERVICE.service" <<EOF
 [Unit]
 Description=BrainDrop personal inbox, tasks and reminders
-Documentation=file://$REMOTE_DIR/current/DEPLOYMENT.md
 After=network-online.target
 Wants=network-online.target
 
@@ -47,16 +47,16 @@ Wants=network-online.target
 Type=simple
 User=$SERVICE_USER
 Group=$SERVICE_USER
-WorkingDirectory=$CURRENT
+WorkingDirectory=$REMOTE_DIR
 Environment=LOCO_ENV=production
 EnvironmentFile=$ENV_FILE
-ExecStart=$CURRENT/braindrop start --all
+ExecStart=$REMOTE_DIR/braindrop start --all
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30
 KillSignal=SIGTERM
 
-# Hardening. The app only writes under shared/ (databases, backups, logs).
+# Hardening. The app only writes under data/, backup/ and logs/.
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true
@@ -66,7 +66,7 @@ ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
-ReadWritePaths=$REMOTE_DIR/shared
+ReadWritePaths=$REMOTE_DIR/data $REMOTE_DIR/backup $REMOTE_DIR/logs
 LimitNOFILE=65536
 
 [Install]

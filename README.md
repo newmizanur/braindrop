@@ -31,7 +31,7 @@ authorization.
 | Native binaries and SSH deployment | Working — six targets, Makefile, Alpine/Ubuntu services |
 | Task 007 release hardening | Complete — security headers, no-store cache policy, auth rate limits, release docs and full Docker-first CI |
 | Task 009 review remediation | Complete — atomic auth, bounded SQLite pools, generated API contracts, retry-safe notifications and safer backups/releases |
-| Task 010 deployment preparation | Local Fly.io configuration and docs ready; TierHive and Fly remote validation await authorization |
+| Task 010 deployment validation | Fly.io is running; TierHive OpenRC is running after the owner corrected an executable permission issue; final authenticated and resource checks are in progress |
 
 Current release line: **v0.1.0** — see
 [`docs/releases/v0.1.0.md`](docs/releases/v0.1.0.md) and
@@ -109,13 +109,15 @@ Vite proxies `/api` to the backend port from `PORT` (default `5150`).
 ### Create the first account
 
 Public registration is disabled by default. Create the first account with the
-administrator task, which marks the account verified:
+administrator task, which marks the account verified. Enter the password
+without echo; stdin keeps it out of process arguments:
 
 ```sh
-cargo loco task admin:create \
-  email:admin@example.com \
-  name:"Admin" \
-  password:"change-me"
+read -r -s -p "Admin password: " ADMIN_PASSWORD
+printf '\n'
+printf '%s\n' "$ADMIN_PASSWORD" | cargo loco task admin:create \
+  email:admin@example.com name:"Admin" password_stdin:true
+unset ADMIN_PASSWORD
 ```
 
 Set `ALLOW_REGISTRATION=true` to let visitors create their own accounts, and

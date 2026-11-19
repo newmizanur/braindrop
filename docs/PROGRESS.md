@@ -1,6 +1,6 @@
 # BrainDrop Progress
 
-Last updated: **2026-11-19**
+Last updated: **2026-11-20**
 
 ## Milestones
 
@@ -15,12 +15,14 @@ Last updated: **2026-11-19**
 | 007 | Release | **Complete** | Security hardening, CSP/headers, release docs, security regression tests, v0.1.0 readiness — `READY WITH LIMITATIONS` |
 | 008 | Independent code review | **Complete** | Senior review recorded in `docs/tasks/008-code-review.md`; actionable findings assigned to Task 009 |
 | 009 | Review remediation | **Complete** | Security, SQLite, DTO, notification, deployment and cleanup findings remediated; final CI and six local packages verified — `READY WITH LIMITATIONS` |
-| 010 | Fly.io demo, TierHive deployment and benchmark documentation | **Partial: Fly running; TierHive blocked** | Fly machine/volume deployed and health, restart, cold-start and disposable backup checks passed. TierHive app startup and DNS/proxy verification remain blocked. See `docs/tasks/010-deployment-validation.md`. |
+| 010 | Fly.io demo, TierHive deployment and benchmark documentation | **In progress: both deployments running** | Fly remains on its single-machine demo configuration. TierHive's owner-fixed OpenRC service is running as a non-root user and local health passes; HTTPS, authenticated workflows, backup/rollback and active resource checks remain. See `docs/tasks/010-deployment-validation.md`. |
 
 Tasks 001–009 and their review remediation are complete. Task 010 local
-implementation and partial remote validation are recorded. Fly.io is deployed
-under explicit authorization; TierHive app startup remains blocked. Nothing
-was pushed, tagged, published or sent to GitHub Actions.
+implementation is being extended with a flat native runtime and validated
+permission normalization. Fly.io is deployed under explicit authorization;
+TierHive is now running after the owner fixed the original non-root executable
+permission. External HTTPS still fails its TLS handshake. Nothing was pushed,
+tagged, published or sent to GitHub Actions.
 
 ## Milestone 001 — Bootstrap
 

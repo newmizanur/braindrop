@@ -1,6 +1,6 @@
 # BrainDrop benchmark and resource notes
 
-## Remote deployment samples (2026-11-19)
+## Remote deployment samples (2026-11-19 to 2026-11-20)
 
 These observations are separate from the Task 009 local pool comparison below
 and are point-in-time checks, not capacity tests.
@@ -32,13 +32,22 @@ and are point-in-time checks, not capacity tests.
 
 ### TierHive Alpine VPS
 
-The host was inspected and packages were staged, but the application did not
-reach a listening state. No process RSS, startup time, authenticated API,
-active workload, or application DB measurement is available. The host had
-Alpine 3.24.4 on x86_64, 93.2 MiB total RAM and 128 MiB swap; after installing
-the required SQLite/TLS packages it had about 54.4 MiB available and 745.3 MiB
-disk available. This is an unusually constrained host; no capacity claim can
-be made without resolving startup and running a representative workload.
+Read-only measurements on 2026-11-20 were taken before the flat-layout
+redeployment, against the owner-repaired old release tree. The host ran Alpine
+3.24.4 x86_64, with 95,468 KiB RAM and 131,068 KiB swap. At the sample, 45,692
+KiB RAM and 130,072 KiB swap were free/available. The non-root app process
+(UID 103) had 22,476 KiB RSS, 24,840 KiB process high-water RSS since start,
+50,524 KiB virtual size and three threads. The `ps` implementation on this
+Alpine image did not expose per-process CPU, so CPU percentage was not measured.
+The app and queue databases together occupied 160 KiB by `du`; both passed
+`PRAGMA integrity_check`.
+
+Three local health requests returned 200 in 0.7–14.2 ms; the frontend returned
+200 in 1.2 ms and a client-side deep link returned 200 in 0.7 ms. These are
+single-request samples, not authenticated latency or a performance test.
+Startup duration, active workload RSS, CPU, worker/scheduler overhead and
+peak-under-load memory remain unmeasured. The observed database and idle memory
+do not establish reliable capacity on this approximately 93 MiB host.
 
 The Task 009 local Docker samples (128/256 MiB limits) and historical pool
 benchmark below do not establish reliable production capacity under concurrent
@@ -112,13 +121,12 @@ provider work. There is no comparable before/after result.
 
 ### Remote deployments
 
-No TierHive or Fly.io deployment measurements have been recorded. The remote
-TierHive host has not been inspected, and no Fly app, machine or volume has
-been provisioned. There are no verified remote server specifications, native
-binary/archive or Docker image measurements, startup time, idle/active/peak
-memory, CPU use, API latency, database size, or worker/scheduler overhead.
-Native process RSS, container memory and total host memory must be measured and
-reported separately when those deployments are authorized.
+The TierHive sample above is a pre-redeployment idle snapshot. Fly's earlier
+idle sample and local constrained-Docker data are recorded separately above;
+they cannot be compared directly with native RSS or TierHive total memory.
+Authenticated active workloads and queued notification jobs have not yet been
+run on either remote host. Until those samples are recorded, there is no basis
+to claim reliable operation within either 128 or 256 MiB under production load.
 
 The prior pool test is not evidence that BrainDrop is reliable at either 128 MiB
 or 256 MiB. In particular, it did not measure production container overhead or

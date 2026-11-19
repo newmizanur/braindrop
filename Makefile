@@ -16,7 +16,6 @@ ARCH ?= amd64
 SERVICE ?= braindrop
 SERVICE_USER ?= braindrop
 APP_PORT ?= 5150
-KEEP_RELEASES ?= 3
 SKIP_BUILD ?= 0
 AUTO_ROLLBACK ?= 1
 GENERATE_SECRETS ?= 1
@@ -29,8 +28,8 @@ FLY_VOLUME_SIZE ?= 1
 FLY_MEMORY ?= 256
 
 export DIST SSH_HOST SSH_PORT SSH_USER SSH_IDENTITY REMOTE_DIR OS ARCH \
-	SERVICE SERVICE_USER APP_PORT KEEP_RELEASES SKIP_BUILD AUTO_ROLLBACK \
-	GENERATE_SECRETS RELEASE_ID ROLLBACK_RELEASE LINES TARGET
+	SERVICE SERVICE_USER APP_PORT SKIP_BUILD AUTO_ROLLBACK \
+	GENERATE_SECRETS RELEASE_ID LINES TARGET
 
 .PHONY: help run build build-frontend build-linux build-linux-amd64 \
 	build-linux-arm64 build-alpine build-alpine-amd64 build-alpine-arm64 \
@@ -65,15 +64,15 @@ BrainDrop targets
                               (DIR=dist/braindrop-linux-amd64-musl)
 
   SSH deployment (OS=alpine|ubuntu, ARCH=amd64|arm64)
-    make deploy-init          First install: user, directories, .env, service
-    make deploy-files         Upload a release without activating it
-    make deploy-linux         Upload, migrate, activate, health-check
+    make deploy-init          First install: flat runtime, .env, service
+    make deploy-files         Upload runtime files without activating
+    make deploy-linux         Upload, migrate, install, health-check
     make deploy-restart       Restart the service
-    make deploy-status        Service state, current release and health
+    make deploy-status        Flat layout, service state and health
     make deploy-logs          Follow service logs
     make deploy-stop          Stop the service
     make deploy-backup        Run scripts/backup.sh on the remote host
-    make deploy-rollback      Switch to the previous release and restart
+    make deploy-rollback      Restore the previous runtime and restart
 
   Fly.io Docker deployment (requires flyctl installed and authenticated)
     make fly-init             Create the app/volume only when absent
@@ -85,7 +84,7 @@ BrainDrop targets
 
   Required for deployment: SSH_HOST and SSH_USER.
   Optional: SSH_PORT (22), REMOTE_DIR (/opt/braindrop), SERVICE (braindrop),
-            APP_PORT (5150), KEEP_RELEASES (3).
+            APP_PORT (5150).
   Fly settings: FLY_APP (braindrop), FLY_REGION (sin),
                 FLY_VOLUME (braindrop_data), FLY_VOLUME_SIZE (1 GB),
                 FLY_MEMORY (256 MB).

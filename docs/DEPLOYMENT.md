@@ -133,7 +133,8 @@ docker compose start app
 
 # Native systemd / OpenRC
 sudo systemctl stop braindrop   # Ubuntu; use `sudo rc-service braindrop stop` on Alpine
-sudo -u braindrop /opt/braindrop/current/scripts/backup.sh
+sudo -u braindrop env DATA_DIR=/opt/braindrop/data \
+  BACKUP_DIR=/opt/braindrop/backup /opt/braindrop/scripts/backup.sh
 sudo systemctl start braindrop # Ubuntu; use `sudo rc-service braindrop start` on Alpine
 ```
 
@@ -192,7 +193,6 @@ dist/braindrop-linux-amd64-musl/
   frontend/dist/
   scripts/backup.sh
   scripts/restore.sh
-  scripts/test-backup-restore.sh
   scripts/deploy-init-alpine.sh
   scripts/deploy-init-ubuntu.sh
   .env.example
@@ -207,61 +207,61 @@ dist/braindrop-linux-amd64-musl.tar.gz.sha256
 The archive never contains a database, a real `.env`, `node_modules`, source or
 build output. `scripts/package.sh --check <dir>` verifies the layout.
 
-### Installing by hand on Alpine (OpenRC)
+Native packages are public distributions; the SSH deployer derives a separate
+runtime-only archive. The runtime layout is flat and keeps service definitions
+outside the application directory:
 
-```sh
-apk add ca-certificates curl openssl sqlite tzdata
-tar -xzf braindrop-linux-amd64-musl.tar.gz -C /opt
-ln -s /opt/braindrop-linux-amd64-musl /opt/braindrop
-mkdir -p /opt/braindrop/shared/{data,backups,logs}
-cp /opt/braindrop/.env.example /opt/braindrop/shared/.env
-# edit shared/.env: DATABASE_URL/QUEUE_URL point at shared/data
-# and generate JWT_SECRET, AI_ENCRYPTION_KEY, NOTIFICATION_ENCRYPTION_KEY
-/opt/braindrop/scripts/deploy-init-alpine.sh
+```text
+/opt/braindrop/
+  braindrop                 root:root, executable
+  .env                      braindrop:braindrop, mode 600
+  config/production.yaml    root-owned, readable
+  frontend/dist/            root-owned, readable
+  scripts/backup.sh         root-owned, executable
+  scripts/restore.sh        root-owned, executable
+  data/                     braindrop-writable SQLite files
+  logs/                     braindrop-writable OpenRC logs
+  backup/                   braindrop-writable backup archives
+/etc/init.d/braindrop       Alpine OpenRC service
+/etc/systemd/system/braindrop.service  Ubuntu systemd service
 ```
 
-### Installing by hand on Ubuntu (systemd)
+The service account owns only `.env` and the writable state directories. The
+binary, configuration and static assets are root-owned and readable/executable
+as needed. Archive extraction normalizes ownership and modes, so macOS archive
+ownership and restrictive source umasks cannot make the binary unexecutable.
+macOS metadata is removed. Docker uses a separate minimal Debian slim runtime
+with the same compiled frontend and backup/restore tools; it does not embed the
+frontend.
 
-```sh
-apt-get install -y ca-certificates curl openssl sqlite3 tzdata
-tar -xzf braindrop-linux-amd64-glibc.tar.gz -C /opt
-ln -s /opt/braindrop-linux-amd64-glibc /opt/braindrop
-mkdir -p /opt/braindrop/shared/{data,backups,logs}
-cp /opt/braindrop/.env.example /opt/braindrop/shared/.env
-# edit shared/.env
-/opt/braindrop/scripts/deploy-init-ubuntu.sh
-```
-
-Both installers are idempotent. They create a dedicated unprivileged
-`braindrop` user, set ownership and permissions on `shared/`, and install a
-service definition:
-
-- **Alpine**: `/etc/init.d/braindrop` using `supervise-daemon`, `respawn_delay=5`,
-  `need net`, logs in `shared/logs/`.
-- **Ubuntu**: `/etc/systemd/system/braindrop.service` with `Type=simple`,
-  `Restart=on-failure`, `RestartSec=5`, `TimeoutStopSec=30` and hardening
-  (`NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=strict`,
-  `ReadWritePaths=/opt/braindrop/shared`, ...). Logs go to journald.
-
-Neither installer disables host security features and neither writes secrets
-into the unit file: both read `shared/.env`.
+For a new Alpine host install `ca-certificates`, `curl`, `openssl`, `sqlite`,
+`bash` and `tzdata`; OpenRC is required. For Ubuntu install `ca-certificates`,
+`curl`, `openssl`, `sqlite3`, `bash` and `tzdata`; systemd is required. The
+installer creates a dedicated unprivileged account, persistent `data/`,
+`logs/`, and `backup/` directories, and service definitions outside
+`/opt/braindrop`. Alpine uses `supervise-daemon`, respawns after failures and
+writes logs under `logs/`; Ubuntu uses systemd with a 30-second graceful stop
+and write access restricted to the state directories. Both run Loco
+`start --all`.
 
 ## 4. SSH deployment
 
-`make deploy-*` and `scripts/deploy.sh` implement a release-based deployment
-over plain `ssh` and `scp`. They do not use `rsync`, Docker or a compiler on the
-server, and they never disable SSH host-key verification.
+`make deploy-*` and `scripts/deploy.sh` install a flat runtime over plain `ssh`
+and `scp`. They do not use `rsync`, Docker or a compiler on the server, and
+they never disable SSH host-key verification. Public distribution archives
+remain available separately and contain documentation and `.env.example`;
+production receives only the binary, production config, compiled frontend,
+service installer, migration helper and backup/restore scripts.
 
 Remote layout:
 
 ```text
 /opt/braindrop/
-  current -> releases/<release-id>/
-  releases/<release-id>/          immutable unpacked release
-  shared/.env                     created once, preserved forever
-  shared/data/                    application + queue SQLite and sidecars
-  shared/backups/                 archives from scripts/backup.sh
-  shared/logs/                    Alpine service logs
+  braindrop, config/, frontend/, scripts/
+  .env                            created once, preserved across upgrades
+  data/                           application + queue SQLite and sidecars
+  backup/                         DB backups and one code-only rollback archive
+  logs/                           Alpine service logs
 ```
 
 First install:
@@ -273,11 +273,13 @@ make deploy-init \
 ```
 
 This builds and packages the matching target, uploads it, creates
-`shared/.env` from `.env.example` with `DATABASE_URL`/`QUEUE_URL` rewritten to
-`shared/data`, generates `JWT_SECRET`, `AI_ENCRYPTION_KEY` and
-`NOTIFICATION_ENCRYPTION_KEY` with `openssl rand -base64 32`, activates the
-release, installs the service and waits for `/_health`. It then tells you to
-review `shared/.env` (in particular `HOST`) before exposing the service.
+`.env` if it does not exist, creates the writable state directories, and
+generates `JWT_SECRET` and `AI_ENCRYPTION_KEY` with `openssl rand -base64 32`.
+Registration starts disabled. `NOTIFICATION_ENCRYPTION_KEY` may remain empty to
+use the supported AI encryption-key fallback. Review `.env` (especially `HOST`,
+DB paths and optional mail settings) before exposing a new instance. Existing
+environment files, databases, logs and backups are preserved and moved from
+the former `shared/` layout when needed.
 
 Routine update:
 
@@ -287,11 +289,14 @@ make deploy-linux \
   OS=ubuntu ARCH=arm64
 ```
 
-The deploy action uploads to a staging directory, extracts there, runs
-migrations as the service user, atomically repoints `current`, restarts the
-service and polls `/_health`. If the health check fails it repoints `current`
-back to the previous release and restarts. **The database is not rolled back**;
-a failed migration needs a backup restore, not a symlink flip.
+The deploy action uploads a runtime-only staging archive, normalizes file
+ownership and permissions, stops the service, takes an online SQLite backup,
+runs migrations as the service user, then installs the flat runtime and
+restarts the service. It keeps one code-only previous-runtime archive for
+rollback. If health fails, the prior runtime is restored. **The database schema
+is not rolled back**; restoring a schema-incompatible version may require the
+matching pre-upgrade database backup. File replacement occurs while the service
+is stopped, so a routine upgrade includes a short maintenance interval.
 
 Upload staging is hardened: `scripts/deploy.sh` creates an unpredictable archive
 path under the SSH user's home with `mktemp` and `umask 077` instead of a
@@ -304,11 +309,11 @@ Other targets:
 ```sh
 make deploy-files    # upload without activating
 make deploy-restart  # restart and health-check
-make deploy-status   # current release, service state, health
-make deploy-logs     # journalctl / tail -f shared/logs/braindrop.log
+make deploy-status   # flat layout, service state, health
+make deploy-logs     # journalctl / tail -f logs/braindrop.log
 make deploy-stop
 make deploy-backup   # run scripts/backup.sh as the service user
-make deploy-rollback # activate the previous release (no DB downgrade)
+make deploy-rollback # restore the previous runtime (no DB downgrade)
 ```
 
 Variables (all overridable on the command line or via the environment):
@@ -325,7 +330,6 @@ Variables (all overridable on the command line or via the environment):
 | `SERVICE` | `braindrop` | service name |
 | `SERVICE_USER` | `braindrop` | unprivileged runtime user |
 | `APP_PORT` | `5150` | port used for the remote health check |
-| `KEEP_RELEASES` | `3` | old releases to keep |
 | `SKIP_BUILD` | `0` | reuse an existing `dist/` archive |
 | `AUTO_ROLLBACK` | `1` | roll back on a failed health check |
 | `GENERATE_SECRETS` | `1` | generate secrets during `init` |
@@ -337,8 +341,11 @@ SSH_HOST=server.example.com SSH_USER=deploy OS=ubuntu ARCH=arm64 \
   ./scripts/deploy.sh validate
 ```
 
-The script rejects empty or unsafe values, unsupported OS/architecture
-combinations, out-of-range ports and an empty `KEEP_RELEASES`.
+The script rejects empty or unsafe values and unsupported OS/architecture
+combinations and out-of-range ports. `deploy-rollback` preserves the currently
+active runtime as the next rollback target. Before deleting the old release
+tree during migration, the script refuses to proceed if it finds `.env`,
+SQLite files or state directories there.
 
 ### TierHive compatibility
 
@@ -464,16 +471,21 @@ keys without a shared key, set non-secret `AI_ENABLED=true`, choose
 works with AI disabled.
 
 Registration remains disabled. After deployment, create the first account
-using an authenticated console:
+using an authenticated console. The task accepts `password_stdin:true`, which
+reads one line from stdin instead of putting the password in process arguments.
+Enter it without echo in the local shell:
 
 ```sh
-fly ssh console -a braindrop -C 'braindrop-cli task admin:create email:admin@example.com name:Admin password:REPLACE_WITH_A_LONG_RANDOM_PASSWORD'
+read -r -s -p "Admin password: " ADMIN_PASSWORD
+printf '\n'
+printf '%s\n' "$ADMIN_PASSWORD" | fly ssh console -a braindrop \
+  -C 'braindrop-cli task admin:create email:admin@example.com name:Admin password_stdin:true'
+unset ADMIN_PASSWORD
 ```
 
-The task accepts a password argument. Avoid exposing a real password through
-shell history, process listings or captured logs; use a temporary random
-credential and change it after initial sign-in. Never publish a shared admin
-login.
+The same stdin mode works through SSH for native installs. Never place an
+administrator password in shell history, process arguments or captured logs,
+and never publish shared administrator credentials.
 
 ### Public demo policy
 
@@ -509,7 +521,7 @@ Required in production:
 
 | Variable | Notes |
 |---|---|
-| `DATABASE_URL` | `sqlite:///data/braindrop.sqlite?mode=rwc` in Docker, `sqlite:///opt/braindrop/shared/data/braindrop.sqlite?mode=rwc` natively |
+| `DATABASE_URL` | `sqlite:///data/braindrop.sqlite?mode=rwc` in Docker, `sqlite:///opt/braindrop/data/braindrop.sqlite?mode=rwc` natively |
 | `QUEUE_URL` | same shape, separate file |
 | `JWT_SECRET` | base64; Loco decodes it before signing. `openssl rand -base64 32` |
 | `HOST` | public HTTPS origin used in outgoing mail links |
@@ -537,7 +549,7 @@ password reset or magic links.
 - they must be set once and backed up;
 - rotating them makes stored personal OpenRouter keys and Telegram/Discord
   credentials unreadable;
-- the deployment scripts generate them only when `shared/.env` is created and
+- the deployment scripts generate them only when `.env` is created and
   never overwrite an existing file.
 
 TLS is terminated outside the application: by a reverse proxy, the platform's
@@ -627,15 +639,16 @@ Native/SSH:
 
 1. `make deploy-backup`
 2. `make deploy-linux` (or `deploy-files` then `deploy-linux` with `SKIP_BUILD=1`)
-3. the script migrates, activates, restarts and health-checks
-4. on failure it automatically repoints `current` to the previous release
+3. the script backs up the databases, migrates, replaces the flat runtime,
+   restarts and health-checks
+4. on failure it restores the previous code archive and restarts
 
-`make deploy-rollback` switches to the previous release. It does **not**
+`make deploy-rollback` switches to the previous runtime archive. It does **not**
 downgrade the database. If the new release migrated the schema in a
 non-backward-compatible way, restore the matching backup.
 
-Old releases beyond `KEEP_RELEASES` are pruned; the active release is never
-pruned.
+The deployer retains only one code rollback archive. Database backups remain
+separate in `backup/`; operators should copy needed backups off-host.
 
 ## 10. Health and observability
 
@@ -650,7 +663,7 @@ disable reminders and scheduled scans.
 Logs:
 
 - Docker: `docker compose logs -f app`
-- Alpine: `shared/logs/braindrop.log` and `shared/logs/braindrop.err.log`
+- Alpine: `logs/braindrop.log` and `logs/braindrop.err.log`
 - Ubuntu: `journalctl -u braindrop -f`
 
 ## 11. Security checklist
@@ -707,7 +720,7 @@ requests at the edge. Only one application replica is supported.
 - [ ] `ALLOW_REGISTRATION=false` unless public sign-up is intended
 - [ ] Mailer enabled only when needed; SMTP credentials supplied via `.env`
 - [ ] AI disabled or given a server key; per-user keys need an encryption key
-- [ ] `shared/.env` mode `600`, owned by the service user
+- [ ] `.env` mode `600`, owned by the service user
 - [ ] Volume/database directories writable only by the service user
 - [ ] SSH host-key verification left on; use `known_hosts`, not `StrictHostKeyChecking=no`
 - [ ] Backups encrypted at rest and restore-tested
@@ -732,6 +745,7 @@ What the project actually verifies today:
   binaries are built in Linux containers and inspected, but the full native
   service flow is not exercised by CI.
 
-Not verified automatically: an actual SSH deployment to a remote host, an actual
-Alpine/Ubuntu boot of the init scripts, and TierHive platform behaviour. Those
-require an authorized target and are documented rather than claimed.
+Native package permissions, runtime archive filtering, legacy state migration,
+and non-root execution have regression tests in the CI container. Actual
+OpenRC/systemd boot behaviour remains platform-specific and should be checked
+on each target.

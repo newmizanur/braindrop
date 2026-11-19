@@ -12,6 +12,7 @@ use crate::{
     models::{_entities::users, users::RegisterParams},
 };
 use loco_rs::prelude::*;
+use std::io::BufRead;
 
 pub struct AdminCreate;
 
@@ -26,6 +27,41 @@ fn flag(vars: &task::Vars, name: &str, default: bool) -> bool {
             )
         })
         .unwrap_or(default)
+}
+
+fn read_password_line(input: &mut impl BufRead) -> std::io::Result<String> {
+    let mut password = String::new();
+    input.read_line(&mut password)?;
+    while matches!(password.as_bytes().last(), Some(b'\n' | b'\r')) {
+        password.pop();
+    }
+    Ok(password)
+}
+
+fn validate_password_length(password: &str) -> Result<()> {
+    let length = password.chars().count();
+    if !(8..=128).contains(&length) {
+        return Err(Error::string(
+            "password must be between 8 and 128 characters",
+        ));
+    }
+    Ok(())
+}
+
+async fn password_from_stdin() -> Result<String> {
+    tokio::task::spawn_blocking(|| {
+        let stdin = std::io::stdin();
+        read_password_line(&mut stdin.lock())
+    })
+    .await
+    .map_err(|err| Error::string(&format!("could not read password input: {err}")))?
+    .map_err(|err| {
+        tracing::error!(
+            message = err.to_string(),
+            "could not read administrator password"
+        );
+        Error::string("could not read password input")
+    })
 }
 
 /// Apply the requested verification state to an account.
@@ -91,9 +127,10 @@ impl Task for AdminCreate {
             detail: "Create the initial administrator or another account without public registration.\n\
                      Accounts are verified by default. Pass verified:false to require email verification, \
                      and force:true to reset an existing account's password.\n\
+                     For production, pipe the password on stdin with password_stdin:true so it is not placed in process arguments.\n\
                      Usage:\n\
-                     braindrop-cli task admin:create email:admin@example.com name:\"Admin\" password:\"change-me\"\n\
-                     braindrop-cli task admin:create email:admin@example.com name:\"Admin\" password:\"new-secret\" force:true"
+                     braindrop-cli task admin:create email:admin@example.com name:\"Admin\" password_stdin:true\n\
+                     braindrop-cli task admin:create email:admin@example.com name:\"Admin\" password_stdin:true force:true"
                 .to_string(),
         }
     }
@@ -105,15 +142,23 @@ impl Task for AdminCreate {
         let name = vars
             .cli_arg("name")
             .map_err(|_| Error::string("name is mandatory"))?;
-        let password = vars
-            .cli_arg("password")
-            .map_err(|_| Error::string("password is mandatory"))?;
+        let password_stdin = flag(vars, "password_stdin", false);
+        if password_stdin && vars.cli_arg("password").is_ok() {
+            return Err(Error::string(
+                "use either password_stdin:true or password:, not both",
+            ));
+        }
+        let password = if password_stdin {
+            password_from_stdin().await?
+        } else {
+            vars.cli_arg("password")
+                .map_err(|_| Error::string("password or password_stdin:true is mandatory"))?
+                .to_owned()
+        };
         let verified = flag(vars, "verified", true);
         let force = flag(vars, "force", false);
 
-        if password.trim().is_empty() {
-            return Err(Error::string("password must not be empty"));
-        }
+        validate_password_length(&password)?;
 
         let existing = users::Model::find_by_email(&app_context.db, email).await;
 
@@ -128,7 +173,7 @@ impl Task for AdminCreate {
                 let mut active = user.into_active_model();
                 active.name = ActiveValue::Set(name.to_owned());
                 let user = active
-                    .reset_password(&app_context.db, password)
+                    .reset_password(&app_context.db, &password)
                     .await
                     .map_err(|err| {
                         tracing::error!(
@@ -144,7 +189,7 @@ impl Task for AdminCreate {
             Err(ModelError::EntityNotFound) => {
                 let params = RegisterParams {
                     email: email.to_owned(),
-                    password: password.to_owned(),
+                    password,
                     name: name.to_owned(),
                 };
                 let user = users::Model::create_with_password(&app_context.db, &params)
@@ -185,5 +230,34 @@ impl Task for AdminCreate {
         );
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod password_input_tests {
+    use super::{read_password_line, validate_password_length};
+    use std::io::Cursor;
+
+    #[test]
+    fn stdin_password_strips_line_endings_but_preserves_spaces() {
+        let mut input = Cursor::new(b" leading and trailing \r\n".to_vec());
+        assert_eq!(
+            read_password_line(&mut input).unwrap(),
+            " leading and trailing "
+        );
+    }
+
+    #[test]
+    fn stdin_password_accepts_unterminated_input() {
+        let mut input = Cursor::new(b"secret".to_vec());
+        assert_eq!(read_password_line(&mut input).unwrap(), "secret");
+    }
+
+    #[test]
+    fn administrator_password_length_matches_registration_limits() {
+        assert!(validate_password_length("12345678").is_ok());
+        assert!(validate_password_length(&"x".repeat(128)).is_ok());
+        assert!(validate_password_length("short").is_err());
+        assert!(validate_password_length(&"x".repeat(129)).is_err());
     }
 }

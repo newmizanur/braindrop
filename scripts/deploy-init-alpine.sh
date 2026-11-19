@@ -2,8 +2,8 @@
 # First-time Alpine Linux / OpenRC setup for BrainDrop.
 #
 # Run as root on the target host. `scripts/deploy.sh init` runs this after
-# uploading a release and provisioning shared/.env. It is safe to re-run: the
-# service account, directories and existing .env are preserved.
+# installing the runtime and provisioning .env. It is safe to re-run: existing
+# secrets and data are preserved.
 #
 # Required Alpine packages:
 #   apk add ca-certificates curl openssl sqlite tzdata
@@ -13,9 +13,8 @@ REMOTE_DIR="${REMOTE_DIR:-/opt/braindrop}"
 SERVICE="${SERVICE:-braindrop}"
 SERVICE_USER="${SERVICE_USER:-braindrop}"
 APP_PORT="${APP_PORT:-5150}"
-ENV_FILE="$REMOTE_DIR/shared/.env"
-LOG_DIR="$REMOTE_DIR/shared/logs"
-CURRENT="$REMOTE_DIR/current"
+ENV_FILE="$REMOTE_DIR/.env"
+LOG_DIR="$REMOTE_DIR/logs"
 
 die() {
   echo "error: $*" >&2
@@ -24,7 +23,7 @@ die() {
 
 [ "$(id -u)" = "0" ] || die "run this script as root"
 command -v rc-service >/dev/null 2>&1 || die "OpenRC is required (apk add openrc)"
-[ -f "$CURRENT/braindrop" ] || die "no active release at $CURRENT; run deploy.sh init"
+[ -f "$REMOTE_DIR/braindrop" ] || die "no installed binary at $REMOTE_DIR/braindrop"
 [ -f "$ENV_FILE" ] || die "missing $ENV_FILE; run deploy.sh init"
 
 if ! id "$SERVICE_USER" >/dev/null 2>&1; then
@@ -32,21 +31,23 @@ if ! id "$SERVICE_USER" >/dev/null 2>&1; then
   adduser -S -D -H -G "$SERVICE_USER" -h "$REMOTE_DIR" -s /sbin/nologin "$SERVICE_USER"
 fi
 
-mkdir -p "$REMOTE_DIR/shared/data" "$REMOTE_DIR/shared/backups" "$LOG_DIR"
-chown -R "$SERVICE_USER:$SERVICE_USER" "$REMOTE_DIR/shared"
-chmod 750 "$REMOTE_DIR/shared" "$REMOTE_DIR/shared/data"
+mkdir -p "$REMOTE_DIR/data" "$REMOTE_DIR/backup" "$LOG_DIR"
+chown -R "$SERVICE_USER:$SERVICE_USER" "$REMOTE_DIR/data" "$REMOTE_DIR/backup" "$LOG_DIR"
+chmod 750 "$REMOTE_DIR/data" "$REMOTE_DIR/backup" "$LOG_DIR"
 chmod 600 "$ENV_FILE"
 chown "$SERVICE_USER:$SERVICE_USER" "$ENV_FILE"
+chown root:root "$REMOTE_DIR" "$REMOTE_DIR/braindrop"
+chmod 755 "$REMOTE_DIR" "$REMOTE_DIR/braindrop"
 
 cat >"/etc/init.d/$SERVICE" <<EOF
 #!/sbin/openrc-run
 name="BrainDrop"
 description="BrainDrop personal inbox, tasks and reminders"
 
-command="$CURRENT/braindrop"
+command="$REMOTE_DIR/braindrop"
 command_args="start --all"
 command_user="$SERVICE_USER:$SERVICE_USER"
-directory="$CURRENT"
+directory="$REMOTE_DIR"
 pidfile="/run/$SERVICE.pid"
 supervisor="supervise-daemon"
 respawn_delay=5
