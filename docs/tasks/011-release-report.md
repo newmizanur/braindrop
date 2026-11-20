@@ -33,11 +33,14 @@ Documentation follow-up commits are on `main` and do not move the tag.
   `sha256:6c2df4e4cd37698a90f45fc08a356001efa000b055e7e4985f5086d4044dae1a`.
   Anonymous pulls of both platforms succeeded for `v0.1.0`; `latest` resolves to
   the same multi-platform index digest.
-- GHCR package visibility was set to public. The latest authenticated package
-  API result available in the interrupted publication session had
-  `repository: null`; repository association therefore remains unverified and
-  appears not to be connected. The owner can connect it from the package page's
-  **Connect repository** setting.
+- GHCR package visibility is public. The latest authenticated package API
+  result available from the publication session had `repository: null`. A new
+  API check could not run because the local `gh` token is invalid. As a public
+  UI cross-check, the repository's `/packages` page currently shows GitHub's
+  generic “Get started with GitHub Packages” state and no package entry; the
+  owner-level container package page lists `braindrop` but exposes no link to
+  the repository. These checks do not confirm the claimed association; connect
+  it from the package page's **Connect repository** setting and verify again.
 - Live anonymous download of the public release API and every archive,
   sidecar, and `SHA256SUMS` succeeded. All six archives passed both the
   consolidated checksum file and their individual SHA-256 sidecars. The GitHub
@@ -92,13 +95,13 @@ GitHub Actions were not triggered.
 
 ## Final verification still required
 
-1. Connect the GHCR package to `newmizanur/braindrop` in package settings. The
-   latest available package API response had `repository: null`. Re-authenticate
-   `gh` if API verification or settings changes are needed; current local CLI
-   credentials are invalid.
-2. The documentation-only follow-up is pushed to `main` as `e487b3f`. The
-   immutable `v0.1.0` tag was not moved.
+1. Confirm the package's repository association through the authenticated API
+   or a repository Packages page that lists `braindrop`. Current public page
+   evidence does not confirm it, and `gh` reports an invalid token.
+2. The documentation-only updates are pushed to `main`; release tag `v0.1.0`
+   remains unchanged at the validated source commit.
 
 Tasks 001–010 and the publication, asset, and anonymous-pull portions of Task
-011 are complete. The repository association remains unverified and appears
-unset, so Task 011 should not be marked complete until that is resolved.
+011 are complete. The repository Packages page does not currently list the
+container package, and the API could not be queried with the invalid local CLI
+token. Task 011 should not be marked complete until the association is confirmed.

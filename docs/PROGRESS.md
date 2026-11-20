@@ -67,7 +67,7 @@ Last updated: **2026-11-20**
 | 008 | Independent code review | **Complete** | Senior review recorded in `docs/tasks/008-code-review.md`; actionable findings assigned to Task 009 |
 | 009 | Review remediation | **Complete** | Security, SQLite, DTO, notification, deployment and cleanup findings remediated; final CI and six local packages verified — `READY WITH LIMITATIONS` |
 | 010 | Fly.io demo, TierHive deployment and benchmark documentation | **Complete with limitations** | Fly and TierHive are running. TierHive HTTPS, health and SPA routing work through Cloudflare; Cloudflare-to-origin TLS, trusted proxy forwarding and authenticated TierHive workflows remain unverified. See `docs/tasks/010-deployment-validation.md`. |
-| 011 | BrainDrop v0.1.0 public release | **Published; package association outstanding** | Public release assets pass all checksums; anonymous amd64/arm64 pulls succeed. Tag targets `86faa3d`. GHCR package repository association remains outstanding. |
+| 011 | BrainDrop v0.1.0 public release | **Published; association unconfirmed** | Public release assets pass all checksums; anonymous amd64/arm64 pulls succeed. Tag targets `86faa3d`. Repository Packages page does not list the GHCR package; CLI API token is invalid. |
 
 Tasks 001–010 are complete. Task 011's v0.1.0 GitHub release and multi-platform
 GHCR tags were published from validated source `86faa3d`; the annotated tag
@@ -75,9 +75,10 @@ remains pinned to that source while subsequent docs commits stay on `main`.
 Anonymous amd64 and arm64 pulls were reverified, and all six public release
 archives passed both the consolidated and per-archive SHA-256 checks. The docs
 follow-up is pushed as `e487b3f`. The package is public, but the last available
-package API response had no associated repository; `gh` currently reports an
-invalid token, so package association remains the only outstanding publication
-step. See `docs/tasks/011-release-report.md`.
+package API response had no associated repository. The public repository
+Packages page shows an empty GitHub Packages state, and the owner package page
+has no repository link. `gh` reports an invalid token, so the association remains
+unconfirmed and is the only outstanding publication step. See `docs/tasks/011-release-report.md`.
 No GitHub Actions run occurred. The latest pnpm audit attempt was blocked by
 npm registry DNS (`ENOTFOUND`).
 
