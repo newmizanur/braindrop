@@ -1,6 +1,7 @@
 # Task 011 — BrainDrop v0.1.0 Release Report
 
-**Status:** Published and publicly verified; GHCR repository association remains outstanding.
+**Status:** Complete. Published release and repository association are publicly
+verified.
 
 **Validated release source:** `86faa3dfa39bb1bf8ccd8e5f96ef71706ca8d302`
 
@@ -16,7 +17,7 @@ Documentation follow-up commits are on `main` and do not move the tag.
 - [Native archives](#native-archives)
 - [Security, CI, and limitations](#security-ci-and-limitations)
 - [Repository and metadata](#repository-and-metadata)
-- [Final verification still required](#final-verification-still-required)
+- [Completion verification](#completion-verification)
 <!-- toc:end -->
 ## Publication results
 
@@ -33,14 +34,13 @@ Documentation follow-up commits are on `main` and do not move the tag.
   `sha256:6c2df4e4cd37698a90f45fc08a356001efa000b055e7e4985f5086d4044dae1a`.
   Anonymous pulls of both platforms succeeded for `v0.1.0`; `latest` resolves to
   the same multi-platform index digest.
-- GHCR package visibility is public. The latest authenticated package API
-  result available from the publication session had `repository: null`. A new
-  API check could not run because the local `gh` token is invalid. As a public
-  UI cross-check, the repository's `/packages` page currently shows GitHub's
-  generic “Get started with GitHub Packages” state and no package entry; the
-  owner-level container package page lists `braindrop` but exposes no link to
-  the repository. These checks do not confirm the claimed association; connect
-  it from the package page's **Connect repository** setting and verify again.
+- GHCR package visibility is public and the package is associated with
+  `newmizanur/braindrop`. The public repository Packages page lists the
+  `braindrop` container package, and the owner-level package page links back to
+  `https://github.com/newmizanur/braindrop`. This current page evidence
+  supersedes an earlier pre-association API result of `repository: null`. The
+  local `gh` token remains invalid, so the association was confirmed using the
+  public GitHub UI pages rather than the authenticated API.
 - Live anonymous download of the public release API and every archive,
   sidecar, and `SHA256SUMS` succeeded. All six archives passed both the
   consolidated checksum file and their individual SHA-256 sidecars. The GitHub
@@ -93,15 +93,15 @@ requested description and 12 topics were set during publication. README,
 license, screenshots, installation links, and release documentation are present.
 GitHub Actions were not triggered.
 
-## Final verification still required
+## Completion verification
 
-1. Confirm the package's repository association through the authenticated API
-   or a repository Packages page that lists `braindrop`. Current public page
-   evidence does not confirm it, and `gh` reports an invalid token.
-2. The documentation-only updates are pushed to `main`; release tag `v0.1.0`
-   remains unchanged at the validated source commit.
+1. The repository Packages page lists `braindrop`, and the package page links
+   to the repository, confirming the package association.
+2. The release tag remains pinned to `86faa3dfa39bb1bf8ccd8e5f96ef71706ca8d302`;
+   the published multi-platform image digest remains
+   `sha256:74e241438c1e61ea70acc62e3a7dca484e34c7c4b2f5aad31c987c96ce41a4f1`.
+3. Documentation-only completion updates are pushed to `main`. No release
+   artifacts were rebuilt or republished, and GitHub Actions were not triggered.
 
-Tasks 001–010 and the publication, asset, and anonymous-pull portions of Task
-011 are complete. The repository Packages page does not currently list the
-container package, and the API could not be queried with the invalid local CLI
-token. Task 011 should not be marked complete until the association is confirmed.
+Tasks 001–011 are complete. Existing platform, audit, and deployment
+limitations remain documented above and in the earlier task reports.
