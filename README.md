@@ -11,11 +11,34 @@ AI is optional. Every core feature works without an API key or any external
 service. **No AI, Telegram or Discord credentials are required for capture,
 tasks, notes, ideas, reminders, search, statistics or settings.**
 
+## Table of Contents
+
+<!-- toc:start -->
+- [Status](#status)
+- [Screenshots](#screenshots)
+  - [Dashboard](#dashboard)
+  - [Inbox](#inbox)
+  - [Quick capture](#quick-capture)
+  - [Integrations](#integrations)
+- [Stack](#stack)
+- [Quick start](#quick-start)
+  - [Prerequisites](#prerequisites)
+  - [Run locally](#run-locally)
+  - [Create the first account](#create-the-first-account)
+  - [Optional AI capture](#optional-ai-capture)
+  - [Optional notifications](#optional-notifications)
+- [Deployment](#deployment)
+  - [Measured resource use](#measured-resource-use)
+- [Validation](#validation)
+- [Documentation](#documentation)
+- [Security](#security)
+- [License](#license)
+<!-- toc:end -->
 ## Status
 
-**BrainDrop v0.1.0 is being published.** The source and tag are public, and the
-release assets are staged in a draft. The GHCR package still needs public
-visibility before Docker pulls will work. See
+**BrainDrop v0.1.0 is available.** Download native archives from the
+[GitHub release](https://github.com/newmizanur/braindrop/releases/tag/v0.1.0)
+or pull `ghcr.io/newmizanur/braindrop:v0.1.0`. See
 [`docs/releases/v0.1.0.md`](docs/releases/v0.1.0.md) for release notes and
 [`docs/PROGRESS.md`](docs/PROGRESS.md) for validation status.
 

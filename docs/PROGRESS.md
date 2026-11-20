@@ -2,6 +2,57 @@
 
 Last updated: **2026-11-20**
 
+## Table of Contents
+
+<!-- toc:start -->
+- [Milestones](#milestones)
+- [Milestone 001 — Bootstrap](#milestone-001-bootstrap)
+  - [Completed](#completed)
+  - [Validation](#validation)
+  - [Decisions](#decisions)
+  - [Blockers](#blockers)
+  - [Known limitations](#known-limitations)
+- [Milestone 002 — Auth and Shell Hardening](#milestone-002-auth-and-shell-hardening)
+  - [Completed](#completed-1)
+  - [Validation](#validation-1)
+  - [Decisions](#decisions-1)
+  - [Blockers](#blockers-1)
+  - [Known limitations](#known-limitations-1)
+- [Milestone 003 — Items and Settings](#milestone-003-items-and-settings)
+  - [Completed](#completed-2)
+  - [Validation](#validation-2)
+  - [Decisions](#decisions-2)
+  - [Blockers](#blockers-2)
+  - [Known limitations](#known-limitations-2)
+- [Milestone 004 — AI Capture](#milestone-004-ai-capture)
+  - [Completed](#completed-3)
+  - [Validation](#validation-3)
+  - [Decisions](#decisions-3)
+  - [Blockers](#blockers-3)
+  - [Known limitations](#known-limitations-3)
+- [Milestone 005 — Notifications](#milestone-005-notifications)
+  - [Completed](#completed-4)
+  - [Validation](#validation-4)
+  - [Decisions](#decisions-4)
+  - [Blockers](#blockers-4)
+  - [Known limitations](#known-limitations-4)
+- [Milestone 006 — Deployment and distribution](#milestone-006-deployment-and-distribution)
+  - [Delivered](#delivered)
+  - [Decisions](#decisions-5)
+  - [Validation](#validation-5)
+  - [Measurements](#measurements)
+  - [Blockers](#blockers-5)
+  - [Known limitations](#known-limitations-5)
+- [Milestone 007 — Release](#milestone-007-release)
+  - [Delivered](#delivered-1)
+  - [Validation](#validation-6)
+  - [Release classification](#release-classification)
+  - [Decisions](#decisions-6)
+  - [Blockers](#blockers-6)
+  - [Known limitations](#known-limitations-6)
+- [Task 008–009 — Review and remediation](#task-008009-review-and-remediation)
+- [Next task](#next-task)
+<!-- toc:end -->
 ## Milestones
 
 | # | Milestone | Status | Notes |
@@ -16,20 +67,18 @@ Last updated: **2026-11-20**
 | 008 | Independent code review | **Complete** | Senior review recorded in `docs/tasks/008-code-review.md`; actionable findings assigned to Task 009 |
 | 009 | Review remediation | **Complete** | Security, SQLite, DTO, notification, deployment and cleanup findings remediated; final CI and six local packages verified — `READY WITH LIMITATIONS` |
 | 010 | Fly.io demo, TierHive deployment and benchmark documentation | **Complete with limitations** | Fly and TierHive are running. TierHive HTTPS, health and SPA routing work through Cloudflare; Cloudflare-to-origin TLS, trusted proxy forwarding and authenticated TierHive workflows remain unverified. See `docs/tasks/010-deployment-validation.md`. |
-| 011 | BrainDrop v0.1.0 public release | **Partially published; GHCR access pending** | `main` and tag `v0.1.0` are public; tag targets source `86faa3d`. Metadata is set, and all 13 release assets are uploaded to a draft. GHCR still needs a classic PAT and public package visibility. |
+| 011 | BrainDrop v0.1.0 public release | **Published; final checks outstanding** | Release and multi-platform GHCR tags are public; tag targets `86faa3d`. Public asset checksum re-download and GHCR repository association need confirmation. |
 
-Tasks 001–010 and their review remediation are complete. Public HTTPS on
-TierHive now routes through Cloudflare and returns healthy application and SPA
-responses. The origin TLS mode and proxy client-IP chain remain unverified.
-Task 011 has pushed the validated source and documentation commits to `main`
-and published the `v0.1.0` tag at source commit `86faa3d`. Repository
-description and topics are set. All six archives, sidecars and `SHA256SUMS` are
-uploaded to a draft release. The GHCR package remains private; publication
-failed with the GitHub CLI OAuth token. GHCR needs a classic PAT, and package
-visibility/linking must be configured in GitHub package settings. No GitHub
-Actions run occurred. A fresh frontend audit retry could not resolve npm
-registry DNS (`ENOTFOUND`); an earlier audit result is historical and does not
-replace the latest blocked attempt.
+Tasks 001–010 are complete. Task 011's v0.1.0 GitHub release and multi-platform
+GHCR tags were published from validated source `86faa3d`; the annotated tag
+remains pinned to that source while subsequent docs commits stay on `main`.
+Anonymous amd64 and arm64 image pulls succeeded during publication. The package
+was made public, but the last available package API response had no associated
+repository. A fresh public asset checksum download and the docs-only push remain
+outstanding because the current environment has invalid GitHub CLI credentials
+and cannot resolve GitHub/GHCR DNS. See `docs/tasks/011-release-report.md`.
+No GitHub Actions run occurred. The latest pnpm audit attempt was blocked by
+npm registry DNS (`ENOTFOUND`).
 
 ## Milestone 001 — Bootstrap
 

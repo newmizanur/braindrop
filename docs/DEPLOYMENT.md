@@ -23,6 +23,30 @@ one process.
 > throughput than one node provides, that is a different architecture, not a
 > second replica.
 
+## Table of Contents
+
+<!-- toc:start -->
+- [1. What runs](#1-what-runs)
+- [2. Docker Compose](#2-docker-compose)
+  - [Running backups in the container](#running-backups-in-the-container)
+- [3. Native binaries](#3-native-binaries)
+- [4. SSH deployment](#4-ssh-deployment)
+  - [TierHive compatibility](#tierhive-compatibility)
+- [5. Fly.io Docker deployment](#5-flyio-docker-deployment)
+  - [Fly secrets and administrator setup](#fly-secrets-and-administrator-setup)
+  - [Public demo policy](#public-demo-policy)
+  - [Fly pricing estimate](#fly-pricing-estimate)
+- [6. Configuration](#6-configuration)
+- [7. Database, queue and migrations](#7-database-queue-and-migrations)
+- [8. Backups and restore](#8-backups-and-restore)
+- [9. Upgrades and rollback](#9-upgrades-and-rollback)
+- [10. Health and observability](#10-health-and-observability)
+- [11. Security checklist](#11-security-checklist)
+  - [Application-provided hardening](#application-provided-hardening)
+  - [Trusted proxies](#trusted-proxies)
+  - [Pre-deployment checks](#pre-deployment-checks)
+- [12. Validation status](#12-validation-status)
+<!-- toc:end -->
 ## 1. What runs
 
 ```sh

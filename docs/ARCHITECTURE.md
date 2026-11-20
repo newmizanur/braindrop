@@ -4,6 +4,31 @@ This document describes how BrainDrop is put together, what is implemented today
 and the design constraints for the remaining milestones. It is a living document:
 update it when a milestone changes the design.
 
+## Table of Contents
+
+<!-- toc:start -->
+- [1. Status](#1-status)
+- [2. Design principles](#2-design-principles)
+- [3. Runtime shape](#3-runtime-shape)
+- [4. Directory map](#4-directory-map)
+- [5. Data model](#5-data-model)
+  - [5.1 Current tables](#51-current-tables)
+  - [5.2 Application tables](#52-application-tables)
+  - [5.3 Ownership rules](#53-ownership-rules)
+- [6. HTTP API](#6-http-api)
+- [7. Authentication and authorization](#7-authentication-and-authorization)
+- [8. OpenRouter integration](#8-openrouter-integration)
+- [9. Notifications](#9-notifications)
+- [10. Frontend](#10-frontend)
+- [11. Static asset serving](#11-static-asset-serving)
+- [12. Configuration and secrets](#12-configuration-and-secrets)
+- [13. Security](#13-security)
+- [14. Testing](#14-testing)
+  - [14.1 Continuous integration](#141-continuous-integration)
+- [15. Deployment](#15-deployment)
+- [16. Decisions and deviations](#16-decisions-and-deviations)
+- [17. Open questions](#17-open-questions)
+<!-- toc:end -->
 ## 1. Status
 
 Milestones 1 (bootstrap), 2 (auth and shell hardening), 3 (items and settings),

@@ -3,6 +3,18 @@
 **Status:** Complete — `READY WITH LIMITATIONS`. Nothing was pushed, tagged,
 published or deployed; those steps require explicit authorization.
 
+## Table of Contents
+
+<!-- toc:start -->
+- [Objective](#objective)
+- [Scope](#scope)
+- [Dependencies](#dependencies)
+- [Implementation checklist](#implementation-checklist)
+- [Acceptance criteria](#acceptance-criteria)
+- [Validation commands](#validation-commands)
+- [Decisions](#decisions)
+- [Out of scope](#out-of-scope)
+<!-- toc:end -->
 ## Objective
 
 Harden and document BrainDrop for a first open-source release: complete test

@@ -4,6 +4,20 @@
 measured; an actual SSH deployment and a real Alpine/Ubuntu boot remain
 authorized-operator steps and are documented as unverified.
 
+## Table of Contents
+
+<!-- toc:start -->
+- [Objective](#objective)
+- [Scope](#scope)
+  - [006A — Docker and Compose](#006a-docker-and-compose)
+  - [006B — Native builds and distribution](#006b-native-builds-and-distribution)
+  - [006C — Makefile and SSH deployment](#006c-makefile-and-ssh-deployment)
+  - [006D — Backup and restore](#006d-backup-and-restore)
+  - [006E — Validation, measurements, documentation](#006e-validation-measurements-documentation)
+- [Acceptance criteria](#acceptance-criteria)
+- [Measurements](#measurements)
+- [Out of scope](#out-of-scope)
+<!-- toc:end -->
 ## Objective
 
 Make BrainDrop deployable and distributable as a self-hosted single-node

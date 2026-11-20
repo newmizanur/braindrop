@@ -5,6 +5,18 @@
 **Scope:** Remediation and final local validation for BrainDrop v0.1.0. No
 publishing, tagging, deployment, push, or hosted workflow was performed.
 
+## Table of Contents
+
+<!-- toc:start -->
+- [Executive summary](#executive-summary)
+- [Task 008 finding disposition](#task-008-finding-disposition)
+- [SQLite pool benchmark](#sqlite-pool-benchmark)
+- [Validation and artifacts](#validation-and-artifacts)
+- [Simplification and dependency review](#simplification-and-dependency-review)
+- [Remaining limitations](#remaining-limitations)
+- [Release readiness](#release-readiness)
+- [Finding-level remediation records](#finding-level-remediation-records)
+<!-- toc:end -->
 ## Executive summary
 
 All confirmed actionable findings from Task 008 were addressed. Docker-first CI

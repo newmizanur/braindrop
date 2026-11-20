@@ -8,6 +8,21 @@ credentials, encryption keys or administrator passwords. A publicly reachable
 Fly deployment exists, but no demo URL was added to README and no credentials
 were published.
 
+## Table of Contents
+
+<!-- toc:start -->
+- [Implementation summary](#implementation-summary)
+- [Fly.io configuration and validation](#flyio-configuration-and-validation)
+- [Make targets](#make-targets)
+- [TierHive results](#tierhive-results)
+- [Benchmark and resource measurements](#benchmark-and-resource-measurements)
+- [Security and public demo assessment](#security-and-public-demo-assessment)
+- [CI, tests and dependency audit](#ci-tests-and-dependency-audit)
+- [Changed files](#changed-files)
+- [Remaining limitations at initial Task 010 close (superseded below)](#remaining-limitations-at-initial-task-010-close-superseded-below)
+- [2026-11-20 continuation: native runtime and remote recheck](#2026-11-20-continuation-native-runtime-and-remote-recheck)
+- [Task 011 addendum — public HTTPS check (2026-11-20)](#task-011-addendum-public-https-check-2026-11-20)
+<!-- toc:end -->
 ## Implementation summary
 
 - Added root `fly.toml` for the existing production Dockerfile, Loco

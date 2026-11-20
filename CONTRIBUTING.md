@@ -5,6 +5,19 @@ React/Mantine frontend, and it follows Rails-style conventions wherever they
 apply. Read [AGENTS.md](AGENTS.md) before changing code: it is the short version
 of the rules below.
 
+## Table of Contents
+
+<!-- toc:start -->
+- [Ground rules](#ground-rules)
+- [Getting set up](#getting-set-up)
+- [Where things live](#where-things-live)
+- [How to make a change](#how-to-make-a-change)
+- [Style and checks](#style-and-checks)
+- [Commits and pull requests](#commits-and-pull-requests)
+- [Reporting security issues](#reporting-security-issues)
+- [Code of conduct](#code-of-conduct)
+- [License](#license)
+<!-- toc:end -->
 ## Ground rules
 
 - BrainDrop must stay fully functional without AI or external notification

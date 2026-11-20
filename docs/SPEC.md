@@ -1,5 +1,34 @@
 # BrainDrop — Project Specification
 
+## Table of Contents
+
+<!-- toc:start -->
+- [1. Role and objective](#1-role-and-objective)
+- [2. Mandatory documentation](#2-mandatory-documentation)
+- [3. Technology stack](#3-technology-stack)
+- [4. Mandatory initialization](#4-mandatory-initialization)
+- [5. Product requirements](#5-product-requirements)
+  - [Core features](#core-features)
+- [6. Authentication](#6-authentication)
+- [7. HTTP API](#7-http-api)
+- [8. Database](#8-database)
+  - [items](#items)
+  - [user_settings](#user_settings)
+  - [notification_deliveries](#notification_deliveries)
+- [9. OpenRouter integration](#9-openrouter-integration)
+- [10. Notification integrations](#10-notification-integrations)
+  - [Telegram](#telegram)
+  - [Discord](#discord)
+  - [Notification types](#notification-types)
+- [11. Workers and scheduling](#11-workers-and-scheduling)
+- [12. Frontend](#12-frontend)
+- [13. Static asset serving](#13-static-asset-serving)
+- [14. Deployment](#14-deployment)
+- [15. Testing and quality](#15-testing-and-quality)
+- [16. Repository and Git](#16-repository-and-git)
+- [17. Task management](#17-task-management)
+- [18. Initial execution instructions](#18-initial-execution-instructions)
+<!-- toc:end -->
 ## 1. Role and objective
 
 Act as a senior Rust and React software engineer responsible for implementing BrainDrop, an open-source, lightweight, self-hostable, AI-enhanced personal inbox, task and reminder management application.

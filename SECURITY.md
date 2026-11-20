@@ -1,5 +1,20 @@
 # Security Policy
 
+## Table of Contents
+
+<!-- toc:start -->
+- [Supported versions](#supported-versions)
+- [Reporting a vulnerability](#reporting-a-vulnerability)
+  - [Response expectations](#response-expectations)
+- [Scope of the review](#scope-of-the-review)
+  - [Public Internet exposure](#public-internet-exposure)
+  - [Authentication and rate limiting](#authentication-and-rate-limiting)
+  - [Browser storage and XSS](#browser-storage-and-xss)
+  - [HSTS and trusted proxies](#hsts-and-trusted-proxies)
+  - [Integrations and secrets](#integrations-and-secrets)
+  - [Deployment hygiene](#deployment-hygiene)
+- [License](#license)
+<!-- toc:end -->
 ## Supported versions
 
 | Version | Supported |

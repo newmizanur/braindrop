@@ -2,6 +2,19 @@
 
 **Status:** Complete (2026-11-18)
 
+## Table of Contents
+
+<!-- toc:start -->
+- [Objective](#objective)
+- [Scope](#scope)
+- [Dependencies](#dependencies)
+- [Implementation checklist](#implementation-checklist)
+- [Implementation notes](#implementation-notes)
+- [Acceptance criteria](#acceptance-criteria)
+- [Validation commands](#validation-commands)
+- [Validation results (2026-11-18)](#validation-results-2026-11-18)
+- [Out of scope](#out-of-scope)
+<!-- toc:end -->
 ## Objective
 
 Make authentication production-shaped without replacing Loco's implementation:

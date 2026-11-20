@@ -1,5 +1,17 @@
 # BrainDrop benchmark and resource notes
 
+## Table of Contents
+
+<!-- toc:start -->
+- [Remote deployment samples (2026-11-19 to 2026-11-20)](#remote-deployment-samples-2026-11-19-to-2026-11-20)
+  - [Fly.io demo machine](#flyio-demo-machine)
+  - [TierHive Alpine VPS](#tierhive-alpine-vps)
+- [SQLite application pool comparison](#sqlite-application-pool-comparison)
+  - [Environment and method](#environment-and-method)
+- [Deployment measurements](#deployment-measurements)
+  - [Local constrained Docker check (2026-11-19)](#local-constrained-docker-check-2026-11-19)
+  - [Remote deployments](#remote-deployments)
+<!-- toc:end -->
 ## Remote deployment samples (2026-11-19 to 2026-11-20)
 
 These observations are separate from the Task 009 local pool comparison below

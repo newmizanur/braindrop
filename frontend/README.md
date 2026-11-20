@@ -2,6 +2,14 @@
 
 React 19 + TypeScript + Vite SPA, built into `frontend/dist` and served by Loco.
 
+## Table of Contents
+
+<!-- toc:start -->
+- [Stack](#stack)
+- [Development](#development)
+- [Checks](#checks)
+- [Layout](#layout)
+<!-- toc:end -->
 ## Stack
 
 - [React](https://react.dev/) 19 and [React Router](https://reactrouter.com/)

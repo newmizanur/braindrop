@@ -2,6 +2,17 @@
 
 **Status:** Complete (2026-11-18)
 
+## Table of Contents
+
+<!-- toc:start -->
+- [Objective](#objective)
+- [Scope](#scope)
+- [Dependencies](#dependencies)
+- [Implementation checklist](#implementation-checklist)
+- [Acceptance criteria](#acceptance-criteria)
+- [Validation commands](#validation-commands)
+- [Out of scope](#out-of-scope)
+<!-- toc:end -->
 ## Objective
 
 Establish BrainDrop on top of the official Loco scaffold: preserve generated

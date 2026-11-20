@@ -2,6 +2,17 @@
 
 **Status:** Complete
 
+## Table of Contents
+
+<!-- toc:start -->
+- [Objective](#objective)
+- [Scope](#scope)
+- [Dependencies](#dependencies)
+- [Implementation checklist](#implementation-checklist)
+- [Acceptance criteria](#acceptance-criteria)
+- [Validation commands](#validation-commands)
+- [Out of scope](#out-of-scope)
+<!-- toc:end -->
 ## Objective
 
 Deliver scheduled reminders, daily digests and overdue-task notifications through

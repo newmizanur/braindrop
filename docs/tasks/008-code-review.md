@@ -5,6 +5,14 @@
 tests, bundled Loco 1.3.1 guidance, and dependency advisories. This was a
 read-only review; CI was not rerun during the review.
 
+## Table of Contents
+
+<!-- toc:start -->
+- [Executive assessment](#executive-assessment)
+- [Findings recorded for Task 009](#findings-recorded-for-task-009)
+- [Other review observations](#other-review-observations)
+- [Release recommendation at review time](#release-recommendation-at-review-time)
+<!-- toc:end -->
 ## Executive assessment
 
 The application follows Loco conventions and is appropriate for a lightweight,

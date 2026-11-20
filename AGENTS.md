@@ -4,6 +4,25 @@ This is a [Loco](https://loco.rs) app — **Rails for Rust**. When you are unsur
 how something should work here, the answer is almost always "the way Rails does
 it." Where Loco diverges, it is because Rust forced it.
 
+## Table of Contents
+
+<!-- toc:start -->
+- [Read this first](#read-this-first)
+- [The three rules that prevent most mistakes](#the-three-rules-that-prevent-most-mistakes)
+- [Before you call it done](#before-you-call-it-done)
+- [More](#more)
+- [BrainDrop-specific instructions](#braindrop-specific-instructions)
+  - [Project](#project)
+  - [Technology decisions](#technology-decisions)
+  - [Engineering rules](#engineering-rules)
+  - [CI rules](#ci-rules)
+  - [Project documentation](#project-documentation)
+  - [Markdown documentation convention](#markdown-documentation-convention)
+  - [Deployment and distribution](#deployment-and-distribution)
+  - [Development workflow](#development-workflow)
+  - [Git rules](#git-rules)
+  - [Context efficiency](#context-efficiency)
+<!-- toc:end -->
 ## Read this first
 
 A complete Loco skill ships with this app at **`.claude/skills/loco/`**, matched
@@ -111,6 +130,15 @@ BrainDrop is an open-source, lightweight, self-hostable personal inbox, task and
 - `docs/PROGRESS.md`
 - `docs/DEPLOYMENT.md`
 - `docs/tasks/`
+
+### Markdown documentation convention
+
+Maintained Markdown files should have a clickable Table of Contents near the
+top, with links for their second-level and third-level headings. Use
+GitHub-compatible heading anchors, including numeric suffixes for duplicate
+heading text. Keep the table synchronized when headings change and validate
+relative Markdown links. Do not add tables of contents to generated,
+third-party or vendored Markdown files.
 
 ### Deployment and distribution
 
