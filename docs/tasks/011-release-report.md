@@ -1,6 +1,6 @@
 # Task 011 — BrainDrop v0.1.0 Release Report
 
-**Status:** Published, with final verification and repository association outstanding.
+**Status:** Published and publicly verified; GHCR repository association remains outstanding.
 
 **Validated release source:** `86faa3dfa39bb1bf8ccd8e5f96ef71706ca8d302`
 
@@ -27,18 +27,21 @@ Documentation follow-up commits are on `main` and do not move the tag.
 - `ghcr.io/newmizanur/braindrop:v0.1.0` and `:latest` were published as
   multi-platform OCI manifests. Both resolved to
   `sha256:74e241438c1e61ea70acc62e3a7dca484e34c7c4b2f5aad31c987c96ce41a4f1`
-  and contained linux/amd64 and linux/arm64 image manifests. Anonymous pulls
-  of each platform image succeeded in the publication session.
+  on live anonymous inspection. The index contains linux/amd64 manifest
+  `sha256:07ee75e95f026f7da6dcf12975882a1b0e98ae3044defa9f7c4b6d8ada30c6b4`
+  and linux/arm64 manifest
+  `sha256:6c2df4e4cd37698a90f45fc08a356001efa000b055e7e4985f5086d4044dae1a`.
+  Anonymous pulls of both platforms succeeded for `v0.1.0`; `latest` resolves to
+  the same multi-platform index digest.
 - GHCR package visibility was set to public. The latest authenticated package
   API result available in the interrupted publication session had
   `repository: null`; repository association therefore remains unverified and
   appears not to be connected. The owner can connect it from the package page's
   **Connect repository** setting.
-- Current local GitHub CLI credentials are invalid, and GitHub/GHCR DNS is
-  unavailable in this execution environment. The public release assets could
-  not be downloaded again here to independently verify their served checksums.
-  The uploaded files match the locally verified archive checksums recorded
-  below, but public download checksum verification remains outstanding.
+- Live anonymous download of the public release API and every archive,
+  sidecar, and `SHA256SUMS` succeeded. All six archives passed both the
+  consolidated checksum file and their individual SHA-256 sidecars. The GitHub
+  release API reports `draft: false` and `prerelease: false`.
 
 ## Native archives
 
@@ -89,13 +92,13 @@ GitHub Actions were not triggered.
 
 ## Final verification still required
 
-1. Re-authenticate `gh` and verify the package's repository association and
-   public release asset downloads/checksums. Current `gh auth status` reports
-   invalid tokens; network DNS lookups also fail in this environment.
-2. Connect the GHCR package to `newmizanur/braindrop` in package settings if
-   the API still reports no associated repository.
-3. Push the documentation-only follow-up commit after remote authentication is
-   restored. Do not move `v0.1.0`.
+1. Connect the GHCR package to `newmizanur/braindrop` in package settings. The
+   latest available package API response had `repository: null`. Re-authenticate
+   `gh` if API verification or settings changes are needed; current local CLI
+   credentials are invalid.
+2. The documentation-only follow-up is pushed to `main` as `e487b3f`. The
+   immutable `v0.1.0` tag was not moved.
 
-Tasks 001–010 are complete. Task 011 is published but should only be marked
-complete once the final verification and documentation push above succeed.
+Tasks 001–010 and the publication, asset, and anonymous-pull portions of Task
+011 are complete. The repository association remains unverified and appears
+unset, so Task 011 should not be marked complete until that is resolved.

@@ -67,16 +67,17 @@ Last updated: **2026-11-20**
 | 008 | Independent code review | **Complete** | Senior review recorded in `docs/tasks/008-code-review.md`; actionable findings assigned to Task 009 |
 | 009 | Review remediation | **Complete** | Security, SQLite, DTO, notification, deployment and cleanup findings remediated; final CI and six local packages verified — `READY WITH LIMITATIONS` |
 | 010 | Fly.io demo, TierHive deployment and benchmark documentation | **Complete with limitations** | Fly and TierHive are running. TierHive HTTPS, health and SPA routing work through Cloudflare; Cloudflare-to-origin TLS, trusted proxy forwarding and authenticated TierHive workflows remain unverified. See `docs/tasks/010-deployment-validation.md`. |
-| 011 | BrainDrop v0.1.0 public release | **Published; final checks outstanding** | Release and multi-platform GHCR tags are public; tag targets `86faa3d`. Public asset checksum re-download and GHCR repository association need confirmation. |
+| 011 | BrainDrop v0.1.0 public release | **Published; package association outstanding** | Public release assets pass all checksums; anonymous amd64/arm64 pulls succeed. Tag targets `86faa3d`. GHCR package repository association remains outstanding. |
 
 Tasks 001–010 are complete. Task 011's v0.1.0 GitHub release and multi-platform
 GHCR tags were published from validated source `86faa3d`; the annotated tag
 remains pinned to that source while subsequent docs commits stay on `main`.
-Anonymous amd64 and arm64 image pulls succeeded during publication. The package
-was made public, but the last available package API response had no associated
-repository. A fresh public asset checksum download and the docs-only push remain
-outstanding because the current environment has invalid GitHub CLI credentials
-and cannot resolve GitHub/GHCR DNS. See `docs/tasks/011-release-report.md`.
+Anonymous amd64 and arm64 pulls were reverified, and all six public release
+archives passed both the consolidated and per-archive SHA-256 checks. The docs
+follow-up is pushed as `e487b3f`. The package is public, but the last available
+package API response had no associated repository; `gh` currently reports an
+invalid token, so package association remains the only outstanding publication
+step. See `docs/tasks/011-release-report.md`.
 No GitHub Actions run occurred. The latest pnpm audit attempt was blocked by
 npm registry DNS (`ENOTFOUND`).
 
