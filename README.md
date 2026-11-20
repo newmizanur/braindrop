@@ -14,6 +14,7 @@ tasks, notes, ideas, reminders, search, statistics or settings.**
 ## Table of Contents
 
 <!-- toc:start -->
+- [Live Instance](#live-instance)
 - [Status](#status)
 - [Screenshots](#screenshots)
   - [Dashboard](#dashboard)
@@ -34,6 +35,12 @@ tasks, notes, ideas, reminders, search, statistics or settings.**
 - [Security](#security)
 - [License](#license)
 <!-- toc:end -->
+
+## Live Instance
+
+[braindrop.mizanur.net](https://braindrop.mizanur.net/) is a personal
+self-hosted instance, not a public demo. Registration is disabled.
+
 ## Status
 
 **BrainDrop v0.1.0 is available.** Download native archives from the
@@ -95,8 +102,10 @@ session. They are committed in `docs/screenshots/` and can be regenerated with
 - OpenRouter (optional), Telegram Bot API, Discord webhooks
 - Docker and GitHub Actions
 
-Multi-user accounts are supported. No Redis, PostgreSQL, message broker, vector
-database or microservice is required.
+Multi-user accounts are supported. SQLite is the supported database for both
+application data and the background queue. PostgreSQL is not currently
+supported and may be considered as a future enhancement. No Redis, message
+broker, vector database or microservice is required.
 
 ## Quick start
 
